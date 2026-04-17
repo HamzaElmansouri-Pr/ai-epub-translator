@@ -8,6 +8,8 @@ import 'package:epub_translate_meaning/features/translation/presentation/cubit/t
 import 'package:epub_translate_meaning/features/settings/domain/entities/user_settings.dart';
 import 'package:epub_translate_meaning/features/dictionary/presentation/widgets/dictionary_bottom_sheet.dart';
 import 'package:epub_translate_meaning/core/services/tts_service.dart';
+import 'package:epub_translate_meaning/features/settings/presentation/cubit/settings_cubit.dart';
+import 'package:epub_translate_meaning/features/settings/presentation/cubit/settings_state.dart';
 
 class InlineTranslationParagraph extends StatefulWidget {
   final String htmlData;

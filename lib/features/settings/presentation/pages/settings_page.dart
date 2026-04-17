@@ -249,6 +249,13 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
     );
   }
+  Widget _buildTierInfo(UserSettings settings) {
+    Color tierColor = AppColors.textSecondary;
+    String tierName = 'Starter (Free)';
+    IconData tierIcon = Icons.star_border_rounded;
+
+    switch (settings.tier) {
+      case AppTier.starter:
         tierColor = AppColors.textSecondary;
         tierName = 'Starter (Free)';
         tierIcon = Icons.star_border_rounded;
