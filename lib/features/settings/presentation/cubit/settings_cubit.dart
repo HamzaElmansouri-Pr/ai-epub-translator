@@ -3,7 +3,7 @@ import 'package:injectable/injectable.dart';
 import 'package:epub_translate_meaning/features/settings/domain/repositories/settings_repository.dart';
 import 'package:epub_translate_meaning/features/settings/presentation/cubit/settings_state.dart';
 
-@injectable
+@lazySingleton
 class SettingsCubit extends Cubit<SettingsState> {
   final SettingsRepository repository;
 

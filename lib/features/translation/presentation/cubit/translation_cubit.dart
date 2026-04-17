@@ -3,7 +3,7 @@ import 'package:injectable/injectable.dart';
 import 'package:epub_translate_meaning/features/translation/domain/repositories/translation_repository.dart';
 import 'package:epub_translate_meaning/features/translation/presentation/cubit/translation_state.dart';
 
-@injectable
+@lazySingleton
 class TranslationCubit extends Cubit<TranslationState> {
   final TranslationRepository repository;
 

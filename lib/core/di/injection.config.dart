@@ -128,7 +128,7 @@ extension GetItInjectableX on _i174.GetIt {
         gh<_i315.LocalBookDataSource>(),
       ),
     );
-    gh.factory<_i216.ReaderCubit>(
+    gh.lazySingleton<_i216.ReaderCubit>(
       () => _i216.ReaderCubit(gh<_i593.ReaderRepository>()),
     );
     gh.lazySingleton<_i949.EpubAudioHandler>(
@@ -164,7 +164,7 @@ extension GetItInjectableX on _i174.GetIt {
     gh.factory<_i92.DictionaryCubit>(
       () => _i92.DictionaryCubit(gh<_i262.DictionaryRepository>()),
     );
-    gh.factory<_i547.SettingsCubit>(
+    gh.lazySingleton<_i547.SettingsCubit>(
       () => _i547.SettingsCubit(gh<_i1052.SettingsRepository>()),
     );
     gh.factory<_i280.LibraryCubit>(
@@ -185,7 +185,7 @@ extension GetItInjectableX on _i174.GetIt {
         gh<_i473.SettingsLocalDataSource>(),
       ),
     );
-    gh.factory<_i409.TranslationCubit>(
+    gh.lazySingleton<_i409.TranslationCubit>(
       () => _i409.TranslationCubit(gh<_i3.TranslationRepository>()),
     );
     gh.lazySingleton<_i594.BulkTranslationCubit>(

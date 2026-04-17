@@ -6,7 +6,7 @@ import 'package:epub_translate_meaning/features/reader/domain/entities/bookmark.
 import 'package:epub_translate_meaning/features/reader/domain/entities/note.dart';
 import 'package:epub_translate_meaning/features/reader/domain/entities/reading_progress.dart';
 
-@injectable
+@lazySingleton
 class ReaderCubit extends Cubit<ReaderState> {
   final ReaderRepository repository;
 
