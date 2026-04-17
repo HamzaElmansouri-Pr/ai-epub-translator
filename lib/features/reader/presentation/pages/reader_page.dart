@@ -5,6 +5,7 @@ import 'package:epub_translate_meaning/features/library/data/repositories/file_r
     if (dart.library.io) 'package:epub_translate_meaning/core/utils/file_reader_native.dart'
     if (dart.library.html) 'package:epub_translate_meaning/core/utils/file_reader_web.dart';
 import 'package:flutter/material.dart';
+import 'package:audio_service/audio_service.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -1320,30 +1321,32 @@ class _ReaderPageState extends State<ReaderPage> {
                                   color: Color(0xFF3B82F6), 
                                   shape: BoxShape.circle,
                                 ),
-                                child: IconButton(
-                                  icon: Icon(
-                                    _isPlayingTts ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                                    color: Colors.white,
-                                    size: 28,
-                                  ),
-                                  onPressed: () {
-                                    if (_isPlayingTts) {
-                                      getIt<EpubAudioHandler>().pause();
-                                      if (mounted) setState(() => _isPlayingTts = false);
-                                    } else {
-                                      if (_currentChapterParagraphs.isEmpty) return;
-                                      setState(() => _isPlayingTts = true);
-                                      getIt<EpubAudioHandler>().setAudiobookData(
-                                        widget.book.title, 
-                                        'Chapter', 
-                                        _currentChapterParagraphs, 
-                                        0,
-                                      );
-                                      getIt<EpubAudioHandler>().play().then((_) {
-                                        if (mounted) setState(() => _isPlayingTts = false);
-                                      });
-                                    }
-                                  },
+                                child: StreamBuilder<PlaybackState>(
+                                  stream: getIt<EpubAudioHandler>().playbackState,
+                                  builder: (context, snapshot) {
+                                    final isPlaying = snapshot.data?.playing ?? false;
+                                    return IconButton(
+                                      icon: Icon(
+                                        isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                                        color: Colors.white,
+                                        size: 28,
+                                      ),
+                                      onPressed: () {
+                                        if (isPlaying) {
+                                          getIt<EpubAudioHandler>().pause();
+                                        } else {
+                                          if (_currentChapterParagraphs.isEmpty) return;
+                                          getIt<EpubAudioHandler>().setAudiobookData(
+                                            widget.book.title, 
+                                            'Chapter', 
+                                            _currentChapterParagraphs, 
+                                            0,
+                                          );
+                                          getIt<EpubAudioHandler>().play();
+                                        }
+                                      },
+                                    );
+                                  }
                                 ),
                               ),
                             ],
