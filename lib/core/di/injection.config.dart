@@ -11,6 +11,8 @@
 // ignore_for_file: no_leading_underscores_for_library_prefixes
 import 'package:dio/dio.dart' as _i361;
 import 'package:epub_translate_meaning/core/di/register_module.dart' as _i887;
+import 'package:epub_translate_meaning/core/services/audio_handler.dart'
+    as _i949;
 import 'package:epub_translate_meaning/core/services/tts_service.dart'
     as _i1004;
 import 'package:epub_translate_meaning/core/storage/database_helper.dart'
@@ -128,6 +130,9 @@ extension GetItInjectableX on _i174.GetIt {
     );
     gh.factory<_i216.ReaderCubit>(
       () => _i216.ReaderCubit(gh<_i593.ReaderRepository>()),
+    );
+    gh.lazySingleton<_i949.EpubAudioHandler>(
+      () => _i949.EpubAudioHandler(gh<_i1004.TtsService>()),
     );
     gh.lazySingleton<_i38.GroqDataSource>(
       () => _i38.GroqDataSourceImpl(gh<_i361.Dio>()),

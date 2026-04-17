@@ -1,6 +1,8 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:epub_translate_meaning/core/services/tts_service.dart';
+import 'package:injectable/injectable.dart';
 
+@lazySingleton
 class EpubAudioHandler extends BaseAudioHandler with SeekHandler {
   final TtsService _ttsService;
 
@@ -22,12 +24,16 @@ class EpubAudioHandler extends BaseAudioHandler with SeekHandler {
   void setAudiobookData(String bookTitle, String chapterTitle, List<String> paragraphs, int startIndex) {
     _paragraphs = paragraphs;
     _currentIndex = startIndex;
-    mediaItem.add(MediaItem(
-      id: bookTitle + chapterTitle,
-      album: bookTitle,
-      title: chapterTitle,
-      artist: 'Epub Translate Meaning',
-    ));
+    try {
+      mediaItem.add(MediaItem(
+        id: bookTitle + chapterTitle,
+        album: bookTitle,
+        title: chapterTitle,
+        artist: 'Epub Translate Meaning',
+      ));
+    } catch (e) {
+      // Ignored for platforms with missing plugins
+    }
   }
 
   Future<void> _playNext() async {
@@ -87,26 +93,30 @@ class EpubAudioHandler extends BaseAudioHandler with SeekHandler {
   }
 
   void _broadcastState() {
-    playbackState.add(PlaybackState(
-      controls: [
-        MediaControl.skipToPrevious,
-        if (_isPlaying) MediaControl.pause else MediaControl.play,
-        MediaControl.stop,
-        MediaControl.skipToNext,
-      ],
-      systemActions: const {
-        MediaAction.seek,
-        MediaAction.seekForward,
-        MediaAction.seekBackward,
-      },
-      androidCompactActionIndices: const [0, 1, 3],
-      processingState: const [
-        AudioProcessingState.idle,
-        AudioProcessingState.ready,
-        AudioProcessingState.buffering,
-        AudioProcessingState.ready,
-      ][_isPlaying ? 3 : 1],
-      playing: _isPlaying,
-    ));
+    try {
+      playbackState.add(PlaybackState(
+        controls: [
+          MediaControl.skipToPrevious,
+          if (_isPlaying) MediaControl.pause else MediaControl.play,
+          MediaControl.stop,
+          MediaControl.skipToNext,
+        ],
+        systemActions: const {
+          MediaAction.seek,
+          MediaAction.seekForward,
+          MediaAction.seekBackward,
+        },
+        androidCompactActionIndices: const [0, 1, 3],
+        processingState: const [
+          AudioProcessingState.idle,
+          AudioProcessingState.ready,
+          AudioProcessingState.buffering,
+          AudioProcessingState.ready,
+        ][_isPlaying ? 3 : 1],
+        playing: _isPlaying,
+      ));
+    } catch (e) {
+      // Ignored for platforms with missing plugins
+    }
   }
 }

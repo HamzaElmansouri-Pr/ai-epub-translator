@@ -32,8 +32,14 @@ class TtsService {
     if (kIsWeb) return;
     
     // Set up audio session to behave like a media player (audiobook/music)
-    final session = await AudioSession.instance;
-    await session.configure(const AudioSessionConfiguration.speech());
+    try {
+      if (Platform.isIOS || Platform.isAndroid || Platform.isMacOS) {
+        final session = await AudioSession.instance;
+        await session.configure(const AudioSessionConfiguration.speech());
+      }
+    } catch (e) {
+      debugPrint('AudioSession configuration failed: $e');
+    }
     
     if (Platform.isIOS) {
       await _flutterTts.setSharedInstance(true);
@@ -48,7 +54,11 @@ class TtsService {
       );
     }
     
-    await _flutterTts.awaitSpeakCompletion(true);
+    try {
+      await _flutterTts.awaitSpeakCompletion(true);
+    } catch (e) {
+      debugPrint('awaitSpeakCompletion not supported: $e');
+    }
     _isInit = true;
   }
 
@@ -58,8 +68,14 @@ class TtsService {
     }
     
     // Activate audio session for background playback
-    final session = await AudioSession.instance;
-    await session.setActive(true);
+    try {
+      if (!kIsWeb && (Platform.isIOS || Platform.isAndroid || Platform.isMacOS)) {
+        final session = await AudioSession.instance;
+        await session.setActive(true);
+      }
+    } catch (e) {
+      debugPrint('AudioSession setActive failed: $e');
+    }
     
     if (language != null) {
       // Try to set language, ignoring errors if unsupported
@@ -76,7 +92,13 @@ class TtsService {
   Future<void> stop() async {
     await _flutterTts.stop();
     // Deactivate audio session when stopped
-    final session = await AudioSession.instance;
-    await session.setActive(false);
+    try {
+      if (!kIsWeb && (Platform.isIOS || Platform.isAndroid || Platform.isMacOS)) {
+        final session = await AudioSession.instance;
+        await session.setActive(false);
+      }
+    } catch (e) {
+      debugPrint('AudioSession setActive failed: $e');
+    }
   }
 }
