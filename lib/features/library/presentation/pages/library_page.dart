@@ -23,12 +23,14 @@ class _LibraryPageState extends State<LibraryPage> {
   bool _isExporting = false;
   String _selectedTab = 'All';
 
+  String _sortOption = 'newest';
+
   final List<String> _tabs = [
     'All',
     'Want to Read',
     'Reading',
     'Finished',
-    'Favorites'
+    'Favorites',
   ];
 
   @override
@@ -435,6 +437,57 @@ class _LibraryPageState extends State<LibraryPage> {
                                   color: Colors.white.withValues(alpha: 0.1),
                                 ),
                               ),
+                              child: PopupMenuButton<String>(
+                                tooltip: 'Sort By',
+                                icon: const Icon(
+                                  Icons.sort_rounded,
+                                  size: 26,
+                                  color: Colors.white,
+                                ),
+                                color: const Color(
+                                  0xFF1E293B,
+                                ).withValues(alpha: 0.95),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                onSelected: (value) {
+                                  setState(() {
+                                    _sortOption = value;
+                                  });
+                                },
+                                itemBuilder: (context) => const [
+                                  PopupMenuItem(
+                                    value: 'newest',
+                                    child: Text(
+                                      'Newest Added',
+                                      style: TextStyle(color: Colors.white),
+                                    ),
+                                  ),
+                                  PopupMenuItem(
+                                    value: 'title',
+                                    child: Text(
+                                      'Title (A-Z)',
+                                      style: TextStyle(color: Colors.white),
+                                    ),
+                                  ),
+                                  PopupMenuItem(
+                                    value: 'author',
+                                    child: Text(
+                                      'Author',
+                                      style: TextStyle(color: Colors.white),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.1),
+                                ),
+                              ),
                               child: IconButton(
                                 tooltip: 'Settings',
                                 icon: const Icon(
@@ -505,8 +558,9 @@ class _LibraryPageState extends State<LibraryPage> {
                                 border: isSelected
                                     ? null
                                     : Border.all(
-                                        color: Colors.white
-                                            .withValues(alpha: 0.1),
+                                        color: Colors.white.withValues(
+                                          alpha: 0.1,
+                                        ),
                                       ),
                               ),
                               alignment: Alignment.center,
@@ -606,21 +660,49 @@ class _LibraryPageState extends State<LibraryPage> {
 
                       List<Book> filteredBooks = state.books;
                       if (_selectedTab == 'Want to Read') {
-                        filteredBooks = filteredBooks.where((b) => b.status == 'want_to_read').toList();
+                        filteredBooks = filteredBooks
+                            .where((b) => b.status == 'want_to_read')
+                            .toList();
                       } else if (_selectedTab == 'Reading') {
-                        filteredBooks = filteredBooks.where((b) => b.status == 'reading').toList();
+                        filteredBooks = filteredBooks
+                            .where((b) => b.status == 'reading')
+                            .toList();
                       } else if (_selectedTab == 'Finished') {
-                        filteredBooks = filteredBooks.where((b) => b.status == 'finished').toList();
+                        filteredBooks = filteredBooks
+                            .where((b) => b.status == 'finished')
+                            .toList();
                       } else if (_selectedTab == 'Favorites') {
-                        filteredBooks = filteredBooks.where((b) => b.isFavorite).toList();
+                        filteredBooks = filteredBooks
+                            .where((b) => b.isFavorite)
+                            .toList();
                       }
-
+                      if (_sortOption == 'title') {
+                        filteredBooks.sort(
+                          (a, b) => a.title.toLowerCase().compareTo(
+                            b.title.toLowerCase(),
+                          ),
+                        );
+                      } else if (_sortOption == 'author') {
+                        filteredBooks.sort(
+                          (a, b) => (a.author ?? 'Unknown')
+                              .toLowerCase()
+                              .compareTo((b.author ?? 'Unknown').toLowerCase()),
+                        );
+                      } else {
+                        // 'newest' default
+                        filteredBooks.sort(
+                          (a, b) => b.addedAt.compareTo(a.addedAt),
+                        );
+                      }
                       if (filteredBooks.isEmpty) {
                         return SliverFillRemaining(
                           child: Center(
                             child: Text(
                               'No books in this category.',
-                              style: const TextStyle(color: Colors.white54, fontSize: 16),
+                              style: const TextStyle(
+                                color: Colors.white54,
+                                fontSize: 16,
+                              ),
                             ),
                           ),
                         );
@@ -645,15 +727,24 @@ class _LibraryPageState extends State<LibraryPage> {
                               onTap: () => context.push('/reader', extra: book),
                               child: BookCard(
                                 book: book,
-                                onDelete:
-                                    () {}, // TODO: Implement delete in Cubit
+                                onDelete: () => context
+                                    .read<LibraryCubit>()
+                                    .deleteBook(book.id),
                                 onExport: () =>
                                     _showExportDialog(context, book),
-                                onStatusChanged: (status) => context.read<LibraryCubit>().changeBookStatus(book, status),
-                                onToggleFavorite: () => context.read<LibraryCubit>().toggleFavorite(book),                                  onSearchCover: () => Navigator.push(
-                                    context,
-                                    MaterialPageRoute(builder: (_) => CoverSearchPage(book: book)),
-                                  ),                              ),
+                                onStatusChanged: (status) => context
+                                    .read<LibraryCubit>()
+                                    .changeBookStatus(book, status),
+                                onToggleFavorite: () => context
+                                    .read<LibraryCubit>()
+                                    .toggleFavorite(book),
+                                onSearchCover: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => CoverSearchPage(book: book),
+                                  ),
+                                ),
+                              ),
                             );
                           }, childCount: filteredBooks.length),
                         ),

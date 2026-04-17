@@ -33,6 +33,8 @@ import 'package:epub_translate_meaning/features/library/data/repositories/librar
     as _i670;
 import 'package:epub_translate_meaning/features/library/domain/repositories/library_repository.dart'
     as _i523;
+import 'package:epub_translate_meaning/features/library/domain/usecases/delete_book.dart'
+    as _i180;
 import 'package:epub_translate_meaning/features/library/domain/usecases/export_service.dart'
     as _i366;
 import 'package:epub_translate_meaning/features/library/domain/usecases/get_books.dart'
@@ -151,6 +153,9 @@ extension GetItInjectableX on _i174.GetIt {
     );
     gh.lazySingleton<_i1052.SettingsRepository>(
       () => _i1063.SettingsRepositoryImpl(gh<_i473.SettingsLocalDataSource>()),
+    );
+    gh.lazySingleton<_i180.DeleteBook>(
+      () => _i180.DeleteBook(gh<_i523.LibraryRepository>()),
     );
     gh.lazySingleton<_i303.GetBooks>(
       () => _i303.GetBooks(gh<_i523.LibraryRepository>()),
