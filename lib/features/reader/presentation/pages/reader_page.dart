@@ -433,6 +433,10 @@ class _ReaderPageState extends State<ReaderPage> {
         return const Color(0xFFF8F9FA);
       case 'Sepia':
         return const Color(0xFFF4ECD8);
+      case 'Mint':
+        return const Color(0xFFE8F5E9);
+      case 'OLED':
+        return const Color(0xFF000000);
       case 'Dark':
       default:
         return const Color(0xFF0F172A);
@@ -445,6 +449,10 @@ class _ReaderPageState extends State<ReaderPage> {
         return const Color(0xFF1E293B);
       case 'Sepia':
         return const Color(0xFF433422);
+      case 'Mint':
+        return const Color(0xFF1B5E20);
+      case 'OLED':
+        return Colors.white;
       case 'Dark':
       default:
         return Colors.white.withOpacity(0.9);
@@ -496,8 +504,9 @@ class _ReaderPageState extends State<ReaderPage> {
                 style: TextStyle(color: Colors.white70, fontSize: 14),
               ),
               const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
                 children: [
                   _buildThemeOption(
                     'Light',
@@ -510,8 +519,18 @@ class _ReaderPageState extends State<ReaderPage> {
                     const Color(0xFF433422),
                   ),
                   _buildThemeOption(
+                    'Mint',
+                    const Color(0xFFE8F5E9),
+                    const Color(0xFF1B5E20),
+                  ),
+                  _buildThemeOption(
                     'Dark',
                     const Color(0xFF0F172A),
+                    Colors.white,
+                  ),
+                  _buildThemeOption(
+                    'OLED',
+                    const Color(0xFF000000),
                     Colors.white,
                   ),
                 ],
@@ -528,6 +547,9 @@ class _ReaderPageState extends State<ReaderPage> {
                 children: [
                   _buildFontOption('Merriweather'),
                   _buildFontOption('Inter'),
+                  _buildFontOption('Roboto'),
+                  _buildFontOption('Lora'),
+                  _buildFontOption('Lato'),
                   _buildFontOption('OpenDyslexic'),
                 ],
               ),
