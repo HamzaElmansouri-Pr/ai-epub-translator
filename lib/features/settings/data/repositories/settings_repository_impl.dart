@@ -100,4 +100,24 @@ class SettingsRepositoryImpl implements SettingsRepository {
       return const Left(CacheFailure('Failed to save background color'));
     }
   }
+
+  @override
+  Future<Either<Failure, Unit>> saveTtsVoice(String voice) async {
+    try {
+      await dataSource.cacheTtsVoice(voice);
+      return const Right(unit);
+    } catch (e) {
+      return const Left(CacheFailure('Failed to save TTS voice'));
+    }
+  }
+
+  @override
+  Future<Either<Failure, Unit>> saveBookVoice(String voice) async {
+    try {
+      await dataSource.cacheBookVoice(voice);
+      return const Right(unit);
+    } catch (e) {
+      return const Left(CacheFailure('Failed to save Book voice'));
+    }
+  }
 }

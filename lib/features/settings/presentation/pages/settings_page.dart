@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:epub_translate_meaning/core/di/injection.dart';
+import 'package:epub_translate_meaning/core/services/tts_service.dart';
 import 'package:epub_translate_meaning/core/theme/app_colors.dart';
 import 'package:epub_translate_meaning/features/settings/domain/entities/user_settings.dart';
 import 'package:epub_translate_meaning/features/settings/presentation/cubit/settings_cubit.dart';
@@ -13,10 +15,22 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
+  List<Map<String, String>> _availableVoices = [];
+
   @override
   void initState() {
     super.initState();
     context.read<SettingsCubit>().loadSettings();
+    _loadVoices();
+  }
+
+  Future<void> _loadVoices() async {
+    final voices = await getIt<TtsService>().getVoices();
+    if (mounted) {
+      setState(() {
+        _availableVoices = voices;
+      });
+    }
   }
 
   @override
@@ -61,6 +75,9 @@ class _SettingsPageState extends State<SettingsPage> {
       children: [
         _buildSectionTitle('General configuration'),
         _buildLanguageSelector(settings),
+        const SizedBox(height: 24),
+        _buildSectionTitle('Voice Settings'),
+        _buildVoiceSelectors(settings),
         const SizedBox(height: 32),
         _buildSectionTitle('Subscription Tier'),
         _buildTierInfo(settings),
@@ -157,13 +174,81 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Widget _buildTierInfo(UserSettings settings) {
-    Color tierColor;
-    String tierName;
-    IconData tierIcon;
+  Widget _buildVoiceSelectors(UserSettings settings) {
+    if (_availableVoices.isEmpty) {
+      return const Center(child: Text('Loading voices...'));
+    }
+    
+    // Sort voices to show Arabic first if we want
+    final sortedVoices = List<Map<String, String>>.from(_availableVoices);
+    sortedVoices.sort((a, b) {
+      final aIsAr = (a['locale'] ?? '').toLowerCase().startsWith('ar');
+      final bIsAr = (b['locale'] ?? '').toLowerCase().startsWith('ar');
+      if (aIsAr && !bIsAr) return -1;
+      if (!aIsAr && bIsAr) return 1;
+      return (a['name'] ?? '').compareTo(b['name'] ?? '');
+    });
 
-    switch (settings.tier) {
-      case AppTier.starter:
+    final voiceItems = sortedVoices.map((v) {
+      final val = '${v['name']}||${v['locale']}';
+      final disp = '${v['name']} (${v['locale']})';
+      return DropdownMenuItem<String>(
+        value: val,
+        child: Text(disp, overflow: TextOverflow.ellipsis, maxLines: 1),
+      );
+    }).toList();
+
+    // ensure current values are in list or fallback
+    String? currentTtsVoice = settings.ttsVoice;
+    if (currentTtsVoice != null && !voiceItems.any((e) => e.value == currentTtsVoice)) {
+      currentTtsVoice = null;
+    }
+    String? currentBookVoice = settings.bookVoice;
+    if (currentBookVoice != null && !voiceItems.any((e) => e.value == currentBookVoice)) {
+      currentBookVoice = null;
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
+      ),
+      child: Column(
+        children: [
+          ListTile(
+            title: const Text('TTS Voice (Translations)', style: TextStyle(fontWeight: FontWeight.w600)),
+            subtitle: DropdownButton<String>(
+              isExpanded: true,
+              value: currentTtsVoice,
+              hint: const Text('Select a voice'),
+              dropdownColor: AppColors.surface,
+              underline: const SizedBox(),
+              items: voiceItems,
+              onChanged: (val) {
+                if (val != null) context.read<SettingsCubit>().updateTtsVoice(val);
+              },
+            ),
+          ),
+          const Divider(height: 1, color: Colors.white12),
+          ListTile(
+            title: const Text('Audiobook Voice', style: TextStyle(fontWeight: FontWeight.w600)),
+            subtitle: DropdownButton<String>(
+              isExpanded: true,
+              value: currentBookVoice,
+              hint: const Text('Select a voice'),
+              dropdownColor: AppColors.surface,
+              underline: const SizedBox(),
+              items: voiceItems,
+              onChanged: (val) {
+                if (val != null) context.read<SettingsCubit>().updateBookVoice(val);
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
         tierColor = AppColors.textSecondary;
         tierName = 'Starter (Free)';
         tierIcon = Icons.star_border_rounded;

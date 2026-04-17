@@ -81,4 +81,20 @@ class SettingsCubit extends Cubit<SettingsState> {
       (_) => loadSettings(),
     );
   }
+
+  Future<void> updateTtsVoice(String voice) async {
+    final result = await repository.saveTtsVoice(voice);
+    result.fold(
+      (failure) => emit(SettingsError(failure.message)),
+      (_) => loadSettings(),
+    );
+  }
+
+  Future<void> updateBookVoice(String voice) async {
+    final result = await repository.saveBookVoice(voice);
+    result.fold(
+      (failure) => emit(SettingsError(failure.message)),
+      (_) => loadSettings(),
+    );
+  }
 }

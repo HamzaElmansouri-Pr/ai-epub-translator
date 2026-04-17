@@ -12,4 +12,6 @@ abstract class SettingsRepository {
   Future<Either<Failure, Unit>> saveReaderFontSize(double size);
   Future<Either<Failure, Unit>> saveReaderFontFamily(String family);
   Future<Either<Failure, Unit>> saveReaderBackgroundColor(String color);
+  Future<Either<Failure, Unit>> saveTtsVoice(String voice);
+  Future<Either<Failure, Unit>> saveBookVoice(String voice);
 }

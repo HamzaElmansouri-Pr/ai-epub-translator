@@ -183,7 +183,10 @@ class _InlineTranslationParagraphState
                                 constraints: const BoxConstraints(),
                                 padding: const EdgeInsets.all(4),
                                 onPressed: () {
-                                  getIt<TtsService>().speak(widget.rawText);
+                                    String? ttsVoice;
+                                    final st = getIt<SettingsCubit>().state;
+                                    if (st is SettingsLoaded) ttsVoice = st.settings.ttsVoice;
+                                    getIt<TtsService>().speak(widget.rawText, voice: ttsVoice);
                                 },
                               ),
                               const SizedBox(width: 8),
@@ -193,7 +196,10 @@ class _InlineTranslationParagraphState
                                 constraints: const BoxConstraints(),
                                 padding: const EdgeInsets.all(4),
                                 onPressed: () {
-                                  getIt<TtsService>().speak(state.translation.translation);
+                                    String? ttsVoice;
+                                    final st = getIt<SettingsCubit>().state;
+                                    if (st is SettingsLoaded) ttsVoice = st.settings.ttsVoice;
+                                    getIt<TtsService>().speak(state.translation.translation, voice: ttsVoice);
                                 },
                               ),
                             ],

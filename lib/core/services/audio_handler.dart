@@ -1,5 +1,8 @@
 import 'package:audio_service/audio_service.dart';
+import 'package:epub_translate_meaning/core/di/injection.dart';
 import 'package:epub_translate_meaning/core/services/tts_service.dart';
+import 'package:epub_translate_meaning/features/settings/presentation/cubit/settings_cubit.dart';
+import 'package:epub_translate_meaning/features/settings/presentation/cubit/settings_state.dart';
 import 'package:injectable/injectable.dart';
 
 @lazySingleton
@@ -49,7 +52,17 @@ class EpubAudioHandler extends BaseAudioHandler with SeekHandler {
     if (_currentIndex >= 0 && _currentIndex < _paragraphs.length) {
       _isPlaying = true;
       _broadcastState();
-      await _ttsService.speak(_paragraphs[_currentIndex]);
+      // To get the book voice, we should ideally inject SettingsCubit or get the setting directly.
+      // We will add it as an extension to EpubAudioHandler or read from service locator.
+      String? bookVoice;
+      try {
+        final settingsState = getIt<SettingsCubit>().state;
+        if (settingsState is SettingsLoaded) {
+          bookVoice = settingsState.settings.bookVoice;
+        }
+      } catch (_) {}
+      
+      await _ttsService.speak(_paragraphs[_currentIndex], voice: bookVoice);
     }
   }
 

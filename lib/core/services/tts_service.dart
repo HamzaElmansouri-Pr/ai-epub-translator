@@ -62,7 +62,46 @@ class TtsService {
     _isInit = true;
   }
 
-  Future<void> speak(String text, {String? language}) async {
+  Future<List<Map<String, String>>> getVoices() async {
+    try {
+      final voices = await _flutterTts.getVoices;
+      List<Map<String, String>> result = [];
+      if (voices is List) {
+        for (var v in voices) {
+          if (v is Map) {
+            result.add({
+              'name': v['name']?.toString() ?? '',
+              'locale': v['locale']?.toString() ?? '',
+            });
+          } else if (v is String) {
+            result.add({
+              'name': v,
+              'locale': '',
+            });
+          }
+        }
+      }
+      return result;
+    } catch (e) {
+      debugPrint('Error getting voices: $e');
+      return [];
+    }
+  }
+
+  Future<void> setVoice(String voiceString) async {
+    try {
+      final parts = voiceString.split('||');
+      if (parts.length >= 2 && parts[1].isNotEmpty && parts[0].isNotEmpty) {
+        await _flutterTts.setVoice({'name': parts[0], 'locale': parts[1]});
+      } else if (parts.isNotEmpty && parts[0].isNotEmpty) {
+        await _flutterTts.setVoice({'name': parts[0], 'locale': ''});
+      }
+    } catch (e) {
+      debugPrint('Error setting voice $voiceString: $e');
+    }
+  }
+
+  Future<void> speak(String text, {String? language, String? voice}) async {
     if (!_isInit && !kIsWeb) {
       await _initTts();
     }
@@ -84,6 +123,10 @@ class TtsService {
       } catch (e) {
         debugPrint('Language $language not supported for TTS: $e');
       }
+    }
+
+    if (voice != null && voice.isNotEmpty) {
+      await setVoice(voice);
     }
     
     await _flutterTts.speak(text);

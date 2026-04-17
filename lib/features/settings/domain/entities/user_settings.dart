@@ -12,6 +12,8 @@ class UserSettings extends Equatable {
   final double readerFontSize;
   final String readerFontFamily;
   final String readerBackgroundColor;
+  final String? ttsVoice;
+  final String? bookVoice;
 
   const UserSettings({
     required this.tier,
@@ -23,6 +25,8 @@ class UserSettings extends Equatable {
     this.readerFontSize = 18.0,
     this.readerFontFamily = 'Merriweather',
     this.readerBackgroundColor = 'Dark',
+    this.ttsVoice,
+    this.bookVoice,
   });
 
   @override
@@ -36,6 +40,8 @@ class UserSettings extends Equatable {
     readerFontSize,
     readerFontFamily,
     readerBackgroundColor,
+    ttsVoice,
+    bookVoice,
   ];
 
   UserSettings copyWith({
@@ -48,6 +54,8 @@ class UserSettings extends Equatable {
     double? readerFontSize,
     String? readerFontFamily,
     String? readerBackgroundColor,
+    String? ttsVoice,
+    String? bookVoice,
   }) {
     return UserSettings(
       tier: tier ?? this.tier,
@@ -60,6 +68,8 @@ class UserSettings extends Equatable {
       readerFontFamily: readerFontFamily ?? this.readerFontFamily,
       readerBackgroundColor:
           readerBackgroundColor ?? this.readerBackgroundColor,
+      ttsVoice: ttsVoice ?? this.ttsVoice,
+      bookVoice: bookVoice ?? this.bookVoice,
     );
   }
 }

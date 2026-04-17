@@ -13,6 +13,8 @@ abstract class SettingsLocalDataSource {
   Future<void> cacheReaderFontSize(double size);
   Future<void> cacheReaderFontFamily(String family);
   Future<void> cacheReaderBackgroundColor(String color);
+  Future<void> cacheTtsVoice(String voice);
+  Future<void> cacheBookVoice(String voice);
 }
 
 @LazySingleton(as: SettingsLocalDataSource)
@@ -28,6 +30,8 @@ class SettingsLocalDataSourceImpl implements SettingsLocalDataSource {
   static const String _readerFontSizeKey = 'reader_font_size';
   static const String _readerFontFamilyKey = 'reader_font_family';
   static const String _readerBgColorKey = 'reader_bg_color';
+  static const String _ttsVoiceKey = 'tts_voice';
+  static const String _bookVoiceKey = 'book_voice';
 
   SettingsLocalDataSourceImpl(this.prefs);
 
@@ -41,6 +45,8 @@ class SettingsLocalDataSourceImpl implements SettingsLocalDataSource {
     final fontSize = prefs.getDouble(_readerFontSizeKey) ?? 18.0;
     final fontFamily = prefs.getString(_readerFontFamilyKey) ?? 'Merriweather';
     final bgColor = prefs.getString(_readerBgColorKey) ?? 'Dark';
+    final ttsV = prefs.getString(_ttsVoiceKey);
+    final bookV = prefs.getString(_bookVoiceKey);
 
     // Determine tier based on keys presence
     AppTier activeTier = AppTier.starter;
@@ -60,6 +66,8 @@ class SettingsLocalDataSourceImpl implements SettingsLocalDataSource {
       readerFontSize: fontSize,
       readerFontFamily: fontFamily,
       readerBackgroundColor: bgColor,
+      ttsVoice: ttsV,
+      bookVoice: bookV,
     );
   }
 
@@ -113,5 +121,15 @@ class SettingsLocalDataSourceImpl implements SettingsLocalDataSource {
   @override
   Future<void> cacheReaderBackgroundColor(String color) async {
     await prefs.setString(_readerBgColorKey, color);
+  }
+
+  @override
+  Future<void> cacheTtsVoice(String voice) async {
+    await prefs.setString(_ttsVoiceKey, voice);
+  }
+
+  @override
+  Future<void> cacheBookVoice(String voice) async {
+    await prefs.setString(_bookVoiceKey, voice);
   }
 }
