@@ -455,6 +455,7 @@ class _ReaderPageState extends State<ReaderPage> {
     showModalBottomSheet(
       context: ctx,
       backgroundColor: Colors.transparent,
+      isScrollControlled: true,
       builder: (bCtx) {
         return Container(
           padding: const EdgeInsets.all(24),
@@ -465,10 +466,11 @@ class _ReaderPageState extends State<ReaderPage> {
               top: BorderSide(color: Colors.white.withOpacity(0.1)),
             ),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
               Center(
                 child: Container(
                   width: 40,
@@ -552,6 +554,7 @@ class _ReaderPageState extends State<ReaderPage> {
               ),
               const SizedBox(height: 32),
             ],
+          ),
           ),
         );
       },
