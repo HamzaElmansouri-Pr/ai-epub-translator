@@ -27,8 +27,12 @@ import 'package:epub_translate_meaning/features/dictionary/domain/repositories/d
     as _i262;
 import 'package:epub_translate_meaning/features/dictionary/presentation/cubit/dictionary_cubit.dart'
     as _i92;
+import 'package:epub_translate_meaning/features/library/data/datasources/epub_assembler.dart'
+    as _i1031;
 import 'package:epub_translate_meaning/features/library/data/datasources/local_book_datasource.dart'
     as _i315;
+import 'package:epub_translate_meaning/features/library/data/datasources/pdf_converter_datasource.dart'
+    as _i362;
 import 'package:epub_translate_meaning/features/library/data/repositories/library_repository_impl.dart'
     as _i670;
 import 'package:epub_translate_meaning/features/library/domain/repositories/library_repository.dart'
@@ -41,6 +45,8 @@ import 'package:epub_translate_meaning/features/library/domain/usecases/get_book
     as _i303;
 import 'package:epub_translate_meaning/features/library/domain/usecases/import_book.dart'
     as _i703;
+import 'package:epub_translate_meaning/features/library/domain/usecases/pdf_to_epub_usecase.dart'
+    as _i890;
 import 'package:epub_translate_meaning/features/library/domain/usecases/update_book.dart'
     as _i1018;
 import 'package:epub_translate_meaning/features/library/presentation/cubit/library_cubit.dart'
@@ -82,6 +88,7 @@ import 'package:epub_translate_meaning/features/translation/presentation/cubit/b
 import 'package:epub_translate_meaning/features/translation/presentation/cubit/translation_cubit.dart'
     as _i409;
 import 'package:get_it/get_it.dart' as _i174;
+import 'package:google_generative_ai/google_generative_ai.dart' as _i656;
 import 'package:injectable/injectable.dart' as _i526;
 import 'package:shared_preferences/shared_preferences.dart' as _i460;
 
@@ -101,6 +108,7 @@ extension GetItInjectableX on _i174.GetIt {
     gh.lazySingleton<_i1004.TtsService>(() => _i1004.TtsService());
     gh.lazySingleton<_i964.DatabaseHelper>(() => _i964.DatabaseHelper());
     gh.lazySingleton<_i370.InMemoryBookStore>(() => _i370.InMemoryBookStore());
+    gh.lazySingleton<_i1031.EpubAssembler>(() => _i1031.EpubAssembler());
     gh.lazySingleton<_i691.ClaudeDataSource>(() => _i691.ClaudeDataSource());
     gh.lazySingleton<_i439.OpenAiDataSource>(() => _i439.OpenAiDataSource());
     gh.lazySingleton<_i935.UsageDataSource>(
@@ -111,9 +119,6 @@ extension GetItInjectableX on _i174.GetIt {
     );
     gh.lazySingleton<_i473.SettingsLocalDataSource>(
       () => _i473.SettingsLocalDataSourceImpl(gh<_i460.SharedPreferences>()),
-    );
-    gh.lazySingleton<_i325.GeminiDataSource>(
-      () => _i325.GeminiDataSourceImpl(),
     );
     gh.lazySingleton<_i258.DictionaryApiDataSource>(
       () => _i258.DictionaryApiDataSourceImpl(gh<_i361.Dio>()),
@@ -136,8 +141,9 @@ extension GetItInjectableX on _i174.GetIt {
     gh.lazySingleton<_i949.EpubAudioHandler>(
       () => _i949.EpubAudioHandler(gh<_i1004.TtsService>()),
     );
-    gh.lazySingleton<_i38.GroqDataSource>(
-      () => _i38.GroqDataSourceImpl(gh<_i361.Dio>()),
+    gh.lazySingleton<_i656.GenerativeModel>(
+      () => registerModule.geminiModel,
+      instanceName: 'geminiModel',
     );
     gh.lazySingleton<_i523.LibraryRepository>(
       () => _i670.LibraryRepositoryImpl(gh<_i315.LocalBookDataSource>()),
@@ -166,18 +172,31 @@ extension GetItInjectableX on _i174.GetIt {
     gh.lazySingleton<_i1018.UpdateBook>(
       () => _i1018.UpdateBook(gh<_i523.LibraryRepository>()),
     );
+    gh.lazySingleton<_i38.GroqDataSource>(
+      () => _i38.GroqDataSourceImpl(
+        gh<_i361.Dio>(),
+        gh<_i1052.SettingsRepository>(),
+      ),
+    );
     gh.factory<_i92.DictionaryCubit>(
       () => _i92.DictionaryCubit(gh<_i262.DictionaryRepository>()),
     );
     gh.lazySingleton<_i547.SettingsCubit>(
       () => _i547.SettingsCubit(gh<_i1052.SettingsRepository>()),
     );
-    gh.factory<_i280.LibraryCubit>(
+    gh.lazySingleton<_i362.PdfConverterDatasource>(
+      () => _i362.PdfConverterDatasource(gh<_i1052.SettingsRepository>()),
+    );
+    gh.lazySingleton<_i280.LibraryCubit>(
       () => _i280.LibraryCubit(
         getBooks: gh<_i303.GetBooks>(),
         importBook: gh<_i703.ImportBook>(),
         updateBook: gh<_i1018.UpdateBook>(),
+        removeBookFromDb: gh<_i180.DeleteBook>(),
       ),
+    );
+    gh.lazySingleton<_i325.GeminiDataSource>(
+      () => _i325.GeminiDataSourceImpl(gh<_i1052.SettingsRepository>()),
     );
     gh.lazySingleton<_i3.TranslationRepository>(
       () => _i76.TranslationRepositoryImpl(
@@ -190,7 +209,16 @@ extension GetItInjectableX on _i174.GetIt {
         gh<_i473.SettingsLocalDataSource>(),
       ),
     );
-    gh.lazySingleton<_i409.TranslationCubit>(
+    gh.lazySingleton<_i890.PdfToEpubUseCase>(
+      () => _i890.PdfToEpubUseCase(
+        gh<_i362.PdfConverterDatasource>(),
+        gh<_i1031.EpubAssembler>(),
+        gh<_i703.ImportBook>(),
+        gh<_i1052.SettingsRepository>(),
+        gh<_i366.ExportService>(),
+      ),
+    );
+    gh.factory<_i409.TranslationCubit>(
       () => _i409.TranslationCubit(gh<_i3.TranslationRepository>()),
     );
     gh.lazySingleton<_i594.BulkTranslationCubit>(

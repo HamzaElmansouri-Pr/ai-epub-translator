@@ -1,5 +1,7 @@
-﻿import 'package:flutter/foundation.dart';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:injectable/injectable.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:epub_translate_meaning/core/storage/database_helper.dart';
 import 'package:epub_translate_meaning/core/storage/in_memory_book_store.dart';
@@ -13,6 +15,7 @@ abstract class LocalBookDataSource {
   Future<void> saveBook(BookModel book, {Uint8List? epubBytes});
   Future<void> removeBook(String id);
   Uint8List? getEpubBytes(String bookId);
+  Future<void> cacheEpubBytes(String bookId, Uint8List bytes);
 
   Future<List<BookmarkModel>> getBookmarks(String bookId);
   Future<void> saveBookmark(BookmarkModel bookmark);
@@ -46,16 +49,19 @@ class LocalBookDataSourceImpl implements LocalBookDataSource {
       );
       return List.generate(maps.length, (i) {
         return BookModel(
-          id: maps[i]['id'],
-          title: maps[i]['title'],
-          author: maps[i]['author'],
-          filePath: maps[i]['file_path'],
-          addedAt: DateTime.fromMillisecondsSinceEpoch(maps[i]['added_at']),
+          id: maps[i]['id'] as String,
+          title: maps[i]['title'] as String,
+          author: maps[i]['author'] as String?,
+          filePath: maps[i]['file_path'] as String,
+          addedAt: DateTime.fromMillisecondsSinceEpoch(maps[i]['added_at'] as int),
           lastReadAt: maps[i]['last_read_at'] != null
-              ? DateTime.fromMillisecondsSinceEpoch(maps[i]['last_read_at'])
+              ? DateTime.fromMillisecondsSinceEpoch(maps[i]['last_read_at'] as int)
               : null,
           status: maps[i]['status'] as String? ?? 'reading',
           isFavorite: (maps[i]['is_favorite'] as int?) == 1,
+          isPinned: (maps[i]['is_pinned'] as int?) == 1,
+          coverUrl: maps[i]['cover_url'] as String?,
+          readingProgress: (maps[i]['reading_progress'] as num?)?.toDouble() ?? 0.0,
         );
       });
     } catch (e) {
@@ -71,6 +77,15 @@ class LocalBookDataSourceImpl implements LocalBookDataSource {
     }
     if (kIsWeb) return;
     try {
+      // Physically save bytes to disk if provided
+      if (epubBytes != null && !book.filePath.startsWith('memory://')) {
+        final file = File(book.filePath);
+        if (!await file.parent.exists()) {
+          await file.parent.create(recursive: true);
+        }
+        await file.writeAsBytes(epubBytes);
+      }
+
       final db = await dbHelper.database;
       await db.insert('books', {
         'id': book.id,
@@ -81,8 +96,11 @@ class LocalBookDataSourceImpl implements LocalBookDataSource {
         'last_read_at': book.lastReadAt?.millisecondsSinceEpoch,
         'status': book.status,
         'is_favorite': book.isFavorite ? 1 : 0,
+        'is_pinned': book.isPinned ? 1 : 0,
       }, conflictAlgorithm: ConflictAlgorithm.replace);
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('LocalBookDataSource.saveBook ERROR: $e');
+    }
   }
 
   @override
@@ -97,6 +115,11 @@ class LocalBookDataSourceImpl implements LocalBookDataSource {
 
   @override
   Uint8List? getEpubBytes(String bookId) => memoryStore.getBytes(bookId);
+
+  @override
+  Future<void> cacheEpubBytes(String bookId, Uint8List bytes) async {
+    memoryStore.saveBytes(bookId, bytes);
+  }
 
   @override
   Future<List<BookmarkModel>> getBookmarks(String bookId) async {
@@ -176,6 +199,17 @@ class LocalBookDataSourceImpl implements LocalBookDataSource {
       } else {
         await db.insert('reading_progress', progress.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
       }
+
+      // Propagate progress to books table for library card display
+      await db.update(
+        'books',
+        {
+          'reading_progress': progress.progressPercent,
+          'last_read_at': progress.updatedAt.millisecondsSinceEpoch,
+        },
+        where: 'id = ?',
+        whereArgs: [progress.bookId],
+      );
     } catch (_) {}
   }
 }

@@ -3,6 +3,7 @@ import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:injectable/injectable.dart';
 import 'package:epub_translate_meaning/core/constants/app_constants.dart';
 import 'package:epub_translate_meaning/features/translation/domain/entities/translation.dart';
+import 'package:epub_translate_meaning/features/settings/domain/repositories/settings_repository.dart';
 
 abstract class GeminiDataSource {
   Future<Translation> translate(String text, String targetLanguage);
@@ -10,17 +11,32 @@ abstract class GeminiDataSource {
 
 @LazySingleton(as: GeminiDataSource)
 class GeminiDataSourceImpl implements GeminiDataSource {
-  late final GenerativeModel _model;
+  final SettingsRepository _settingsRepository;
 
-  GeminiDataSourceImpl() {
-    _model = GenerativeModel(
+  GeminiDataSourceImpl(this._settingsRepository);
+
+  Future<GenerativeModel> _getModel() async {
+    final settingsResult = await _settingsRepository.getSettings();
+    String apiKey = AppConstants.defaultGeminiKey;
+    
+    settingsResult.fold(
+      (failure) => null,
+      (settings) {
+        if (settings.customGeminiKey != null && settings.customGeminiKey!.isNotEmpty) {
+          apiKey = settings.customGeminiKey!;
+        }
+      },
+    );
+
+    return GenerativeModel(
       model: AppConstants.geminiModel,
-      apiKey: AppConstants.defaultGeminiKey,
+      apiKey: apiKey,
     );
   }
 
   @override
   Future<Translation> translate(String text, String targetLanguage) async {
+    final model = await _getModel();
     final systemPrompt =
         """
 You are a professional literary translator. Translate the following paragraph into $targetLanguage. Maintain the soul and emotional tone of the text, use natural linguistic flow, and strictly avoid literal translation. Return the result in a JSON format: {"original": "...", "translation": "..."}.
@@ -29,7 +45,7 @@ You are a professional literary translator. Translate the following paragraph in
     final content = [
       Content.text("$systemPrompt\n\nParagraph to translate:\n$text"),
     ];
-    final response = await _model.generateContent(content);
+    final response = await model.generateContent(content);
 
     final responseText = response.text;
     if (responseText == null) throw Exception('Empty response from Gemini');

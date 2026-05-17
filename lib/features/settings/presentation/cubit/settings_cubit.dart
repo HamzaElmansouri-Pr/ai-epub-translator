@@ -34,6 +34,14 @@ class SettingsCubit extends Cubit<SettingsState> {
     );
   }
 
+  Future<void> updateGroqKey(String key) async {
+    final result = await repository.saveCustomGroqKey(key);
+    result.fold(
+      (failure) => emit(SettingsError(failure.message)),
+      (_) => loadSettings(),
+    );
+  }
+
   Future<void> updateOpenAIKey(String key) async {
     final result = await repository.saveCustomOpenAIKey(key);
     result.fold(
@@ -44,6 +52,14 @@ class SettingsCubit extends Cubit<SettingsState> {
 
   Future<void> updateClaudeKey(String key) async {
     final result = await repository.saveCustomClaudeKey(key);
+    result.fold(
+      (failure) => emit(SettingsError(failure.message)),
+      (_) => loadSettings(),
+    );
+  }
+
+  Future<void> updatePreferredProService(String service) async {
+    final result = await repository.savePreferredProService(service);
     result.fold(
       (failure) => emit(SettingsError(failure.message)),
       (_) => loadSettings(),
@@ -96,5 +112,33 @@ class SettingsCubit extends Cubit<SettingsState> {
       (failure) => emit(SettingsError(failure.message)),
       (_) => loadSettings(),
     );
+  }
+
+  Future<void> addAutoImportFolder(String path) async {
+    final currentState = state;
+    if (currentState is SettingsLoaded) {
+      final updatedPaths = List<String>.from(currentState.settings.autoImportFolderPaths);
+      if (!updatedPaths.contains(path)) {
+        updatedPaths.add(path);
+        final result = await repository.saveAutoImportFolderPaths(updatedPaths);
+        result.fold(
+          (failure) => emit(SettingsError(failure.message)),
+          (_) => loadSettings(),
+        );
+      }
+    }
+  }
+
+  Future<void> removeAutoImportFolder(String path) async {
+    final currentState = state;
+    if (currentState is SettingsLoaded) {
+      final updatedPaths = List<String>.from(currentState.settings.autoImportFolderPaths);
+      updatedPaths.remove(path);
+      final result = await repository.saveAutoImportFolderPaths(updatedPaths);
+      result.fold(
+        (failure) => emit(SettingsError(failure.message)),
+        (_) => loadSettings(),
+      );
+    }
   }
 }

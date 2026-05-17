@@ -1,4 +1,5 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_html/flutter_html.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -10,6 +11,7 @@ import 'package:epub_translate_meaning/features/dictionary/presentation/widgets/
 import 'package:epub_translate_meaning/core/services/tts_service.dart';
 import 'package:epub_translate_meaning/features/settings/presentation/cubit/settings_cubit.dart';
 import 'package:epub_translate_meaning/features/settings/presentation/cubit/settings_state.dart';
+import 'package:epubx/epubx.dart' as epub;
 
 class InlineTranslationParagraph extends StatefulWidget {
   final String htmlData;
@@ -20,6 +22,7 @@ class InlineTranslationParagraph extends StatefulWidget {
   final void Function(String)? onLinkTap;
   final VoidCallback? onLongPress;
   final Color? backgroundColor;
+  final epub.EpubBook? epubBook;
 
   const InlineTranslationParagraph({
     super.key,
@@ -31,6 +34,7 @@ class InlineTranslationParagraph extends StatefulWidget {
     this.onLinkTap,
     this.onLongPress,
     this.backgroundColor,
+    this.epubBook,
   });
 
   @override
@@ -47,6 +51,7 @@ class _InlineTranslationParagraphState
   void _toggleTranslation() {
     if (widget.rawText.trim().isEmpty) return;
     if (widget.autoExpand) return; // Cannot collapse if globally expanded
+    HapticFeedback.lightImpact();
     setState(() {
       _localExpanded = !_localExpanded;
     });
@@ -64,8 +69,36 @@ class _InlineTranslationParagraphState
     }
   }
 
+  /// Safely resolves a display font name to a Google Fonts family string.
+  /// Maps shorthand labels (Sans, Serif, Dyslexic) to real Google Font names
+  /// and catches any exception to prevent crashes from unknown font names.
+  String? _resolveGoogleFontFamily(String fontFamily) {
+    // Known display-name → Google Font mappings
+    const fontMap = <String, String>{
+      'Sans': 'Inter',
+      'Serif': 'Merriweather',
+      'Default': 'Merriweather',
+    };
+
+    // OpenDyslexic is a bundled asset font, not a Google Font
+    if (fontFamily == 'OpenDyslexic' || fontFamily == 'Dyslexic') {
+      return 'OpenDyslexic';
+    }
+
+    final resolvedName = fontMap[fontFamily] ?? fontFamily;
+
+    try {
+      return GoogleFonts.getFont(resolvedName).fontFamily;
+    } catch (_) {
+      // Font not found in Google Fonts — fall back to null (system default)
+      return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isOriginalRtl = RegExp(r'[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]').hasMatch(widget.rawText);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -73,54 +106,60 @@ class _InlineTranslationParagraphState
           behavior: HitTestBehavior.opaque,
           onTap: _toggleTranslation,
           onLongPress: widget.onLongPress,
-          child: SelectionArea(
-            contextMenuBuilder: (BuildContext context, SelectableRegionState selectableRegionState) {
-              final List<ContextMenuButtonItem> buttonItems = selectableRegionState.contextMenuButtonItems;
-              buttonItems.add(
-                ContextMenuButtonItem(
-                  label: 'Define',
-                  onPressed: () {
-                    final selection = selectableRegionState.textEditingValue.selection;
-                    final text = selectableRegionState.textEditingValue.text;
-                    if (selection.isValid && !selection.isCollapsed) {
-                      final selectedText = selection.textInside(text);
-                      ContextMenuController.removeAny();
-                      DictionaryBottomSheet.show(context, selectedText);
-                    }
-                  },
-                ),
-              );
-              return AdaptiveTextSelectionToolbar.buttonItems(
-                anchors: selectableRegionState.contextMenuAnchors,
-                buttonItems: buttonItems,
-              );
-            },
+          child: Directionality(
+            textDirection: isOriginalRtl ? TextDirection.rtl : TextDirection.ltr,
             child: Html(
               data: widget.htmlData,
-            onLinkTap: (String? url, Map<String, String> attributes, element) {
-              if (url != null && widget.onLinkTap != null) {
-                widget.onLinkTap!(url);
-              }
-            },
-            style: {
-              'html': Style(
-                padding: HtmlPaddings.only(
-                  top: 0,
-                  right: 16,
-                  bottom: _isExpanded ? 0 : 8,
-                  left: 16,
+              onLinkTap: (String? url, Map<String, String> attributes, element) {
+                if (url != null && widget.onLinkTap != null) {
+                  widget.onLinkTap!(url);
+                }
+              },
+              extensions: [
+                TagExtension(
+                  tagsToExtend: {"img"},
+                  builder: (context) {
+                    final src = context.attributes['src'];
+                    if (src == null || widget.epubBook == null) return const SizedBox();
+                    
+                    // Try to find the image in the epub content
+                    // Epubs often use relative paths like "../Images/fig1.jpg"
+                    // We'll try to match by filename or partial path
+                    final fileName = src.split('/').last.toLowerCase();
+                    
+                    final imageFile = widget.epubBook!.Content?.Images?.values.where((img) {
+                      final imgPath = img.FileName?.toLowerCase() ?? '';
+                      return imgPath.endsWith(fileName) || fileName.endsWith(imgPath.split('/').last);
+                    }).firstOrNull;
+
+                    if (imageFile != null) {
+                      return Image.memory(
+                        Uint8List.fromList(imageFile.Content!),
+                        fit: BoxFit.contain,
+                      );
+                    }
+                    
+                    return const SizedBox();
+                  },
                 ),
-                fontSize: FontSize(widget.settings.readerFontSize),
-                lineHeight: LineHeight(1.6),
-                fontFamily: widget.settings.readerFontFamily == 'OpenDyslexic'
-                    ? null
-                    : GoogleFonts.getFont(
-                        widget.settings.readerFontFamily,
-                      ).fontFamily,
-                color: _getTextColor(widget.settings.readerBackgroundColor),
-              ),
-            },
-          ),
+              ],
+              style: {
+                'html': Style(
+                  padding: HtmlPaddings.only(
+                    top: 0,
+                    right: 16,
+                    bottom: _isExpanded ? 0 : 8,
+                    left: 16,
+                  ),
+                  fontSize: FontSize(widget.settings.readerFontSize),
+                  lineHeight: LineHeight(1.6),
+                  fontFamily: _resolveGoogleFontFamily(widget.settings.readerFontFamily),
+                  color: _getTextColor(widget.settings.readerBackgroundColor),
+                  backgroundColor: widget.backgroundColor,
+                  textAlign: isOriginalRtl ? TextAlign.right : TextAlign.left,
+                ),
+              },
+            ),
           ),
         ),
         if (_isExpanded)
@@ -156,66 +195,73 @@ class _InlineTranslationParagraphState
                       ),
                     );
                   } else if (state is TranslationSuccess) {
-                    return Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF1E293B),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: const Color(0xFF3B82F6).withValues(alpha: 0.3),
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.2),
-                            blurRadius: 4,
-                            offset: const Offset(0, 2),
+                    final isTranslationRtl = widget.settings.targetLanguage.toLowerCase().contains('arabic') ||
+                        RegExp(r'[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]').hasMatch(state.translation.translation);
+
+                    return Directionality(
+                      textDirection: isTranslationRtl ? TextDirection.rtl : TextDirection.ltr,
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1E293B),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: const Color(0xFF3B82F6).withValues(alpha: 0.3),
                           ),
-                        ],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.volume_up, color: Color(0xFF93C5FD), size: 20),
-                                tooltip: 'Play Original',
-                                constraints: const BoxConstraints(),
-                                padding: const EdgeInsets.all(4),
-                                onPressed: () {
-                                    String? ttsVoice;
-                                    final st = getIt<SettingsCubit>().state;
-                                    if (st is SettingsLoaded) ttsVoice = st.settings.ttsVoice;
-                                    getIt<TtsService>().speak(widget.rawText, voice: ttsVoice);
-                                },
-                              ),
-                              const SizedBox(width: 8),
-                              IconButton(
-                                icon: const Icon(Icons.translate, color: Color(0xFF93C5FD), size: 20),
-                                tooltip: 'Play Translation',
-                                constraints: const BoxConstraints(),
-                                padding: const EdgeInsets.all(4),
-                                onPressed: () {
-                                    String? ttsVoice;
-                                    final st = getIt<SettingsCubit>().state;
-                                    if (st is SettingsLoaded) ttsVoice = st.settings.ttsVoice;
-                                    getIt<TtsService>().speak(state.translation.translation, voice: ttsVoice);
-                                },
-                              ),
-                            ],
-                          ),
-                          Text(
-                            state.translation.translation,
-                            style: const TextStyle(
-                              color: Color(0xFF93C5FD),
-                              fontSize: 16,
-                              height: 1.4,
-                              fontWeight: FontWeight.w500,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.2),
+                              blurRadius: 4,
+                              offset: const Offset(0, 2),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: isTranslationRtl ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: isTranslationRtl ? MainAxisAlignment.start : MainAxisAlignment.end,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.volume_up, color: Color(0xFF93C5FD), size: 20),
+                                  tooltip: 'Play Original',
+                                  constraints: const BoxConstraints(),
+                                  padding: const EdgeInsets.all(4),
+                                  onPressed: () {
+                                      String? ttsVoice;
+                                      final st = getIt<SettingsCubit>().state;
+                                      if (st is SettingsLoaded) ttsVoice = st.settings.ttsVoice;
+                                      getIt<TtsService>().speak(widget.rawText, voice: ttsVoice);
+                                  },
+                                ),
+                                const SizedBox(width: 8),
+                                IconButton(
+                                  icon: const Icon(Icons.translate, color: Color(0xFF93C5FD), size: 20),
+                                  tooltip: 'Play Translation',
+                                  constraints: const BoxConstraints(),
+                                  padding: const EdgeInsets.all(4),
+                                  onPressed: () {
+                                      String? ttsVoice;
+                                      final st = getIt<SettingsCubit>().state;
+                                      if (st is SettingsLoaded) ttsVoice = st.settings.ttsVoice;
+                                      getIt<TtsService>().speak(state.translation.translation, voice: ttsVoice);
+                                  },
+                                ),
+                              ],
+                            ),
+                            Text(
+                              state.translation.translation,
+                              textAlign: isTranslationRtl ? TextAlign.right : TextAlign.left,
+                              style: const TextStyle(
+                                color: Color(0xFF93C5FD),
+                                fontSize: 16,
+                                height: 1.4,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     );
                   } else if (state is TranslationError ||

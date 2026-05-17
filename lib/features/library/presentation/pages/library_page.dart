@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -10,6 +11,9 @@ import 'package:epub_translate_meaning/features/library/presentation/pages/cover
 
 import 'package:epub_translate_meaning/core/di/injection.dart';
 import 'package:epub_translate_meaning/features/library/domain/usecases/export_service.dart';
+import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:epub_translate_meaning/features/settings/presentation/cubit/settings_cubit.dart';
+import 'package:epub_translate_meaning/features/settings/presentation/cubit/settings_state.dart';
 
 class LibraryPage extends StatefulWidget {
   const LibraryPage({super.key});
@@ -22,8 +26,11 @@ class _LibraryPageState extends State<LibraryPage> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   bool _isExporting = false;
   String _selectedTab = 'All';
+  bool _showOnlyGenerated = false;
 
   String _sortOption = 'newest';
+  bool _exportIsBilingual = true;
+  bool _skipTranslation = true;
 
   final List<String> _tabs = [
     'All',
@@ -36,181 +43,189 @@ class _LibraryPageState extends State<LibraryPage> {
   @override
   void initState() {
     super.initState();
-    context.read<LibraryCubit>().loadBooks();
+    final settingsState = context.read<SettingsCubit>().state;
+    List<String>? scanPaths;
+    if (settingsState is SettingsLoaded) {
+      scanPaths = settingsState.settings.autoImportFolderPaths;
+    }
+    context.read<LibraryCubit>().loadBooks(autoScanPaths: scanPaths);
   }
 
-  void _runExport(Book book, int start, int end) async {
-    setState(() => _isExporting = true);
+  void _runExport(Book book, {bool isBilingual = true, bool skipTranslation = true}) async {
+    final state = context.read<SettingsCubit>().state;
+    final targetLang = state is SettingsLoaded ? state.settings.targetLanguage : 'Arabic';
+    final service = FlutterBackgroundService();
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(
-                color: Colors.white,
-                strokeWidth: 2,
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Text('Exporting ${book.title}... This may take a moment.'),
-            ),
-          ],
-        ),
-        duration: const Duration(minutes: 5), // Keep alive during export
-        backgroundColor: AppColors.primary,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    var isRunning = await service.isRunning();
+    if (!isRunning) {
+      await service.startService();
+    }
 
-    try {
-      final exportService = getIt<ExportService>();
-      final file = await exportService.generateBilingualEpub(
-        book.id,
-        book.title,
-        book.filePath,
-      );
+    service.invoke("startExport", {
+      "bookId": book.id,
+      "bookTitle": book.title,
+      "originalFilePath": book.filePath,
+      "targetLanguage": targetLang,
+      "isPdf": false,
+      "isMd": false,
+      "useGoogle": false, // Default to Gemini for library instant export
+      "isBilingual": isBilingual,
+      "skipTranslation": skipTranslation, // Context: Library export is usually "As-Is"
+    });
 
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Export Complete! Saved as ${file.path.split(RegExp(r'[/\\]')).last}',
-          ),
-          backgroundColor: AppColors.success,
-          behavior: SnackBarBehavior.floating,
-          action: SnackBarAction(
-            label: 'View Files',
-            textColor: Colors.white,
-            onPressed: () {
-              context.push('/exported-files');
-            },
-          ),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to export: $e'),
-          backgroundColor: AppColors.error,
+        const SnackBar(
+          content: Text('Exporting in the background... check notifications for progress.'),
           behavior: SnackBarBehavior.floating,
         ),
       );
-    } finally {
-      if (mounted) setState(() => _isExporting = false);
     }
   }
 
   void _showExportDialog(BuildContext context, Book book) {
-    int startChapter = 1;
-    int endChapter = 10;
-
     showDialog(
       context: context,
       builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            return AlertDialog(
-              backgroundColor: const Color(0xFF1E293B),
-              title: const Text(
-                'Export Translated EPUB',
-                style: TextStyle(color: Colors.white),
-              ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'Generate bilingual EPUB for: ${book.title}',
-                    style: const TextStyle(color: Colors.white70),
+        return BlocBuilder<SettingsCubit, SettingsState>(
+          builder: (context, settingsState) {
+            return StatefulBuilder(
+              builder: (context, setState) {
+                return AlertDialog(
+                  backgroundColor: const Color(0xFF1E293B),
+                  title: const Text(
+                    'Export EPUB',
+                    style: TextStyle(color: Colors.white),
                   ),
-                  const SizedBox(height: 20),
-                  Row(
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text(
-                        'Start Chapter: ',
-                        style: TextStyle(color: Colors.white),
-                      ),
-                      Expanded(
-                        child: Slider(
-                          value: startChapter.toDouble(),
-                          min: 1,
-                          max: 100,
-                          activeColor: const Color(0xFF3B82F6),
-                          onChanged: (val) =>
-                              setState(() => startChapter = val.toInt()),
-                        ),
-                      ),
                       Text(
-                        '$startChapter',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
+                        'Generate EPUB for: ${book.title}',
+                        style: const TextStyle(color: Colors.white70),
+                      ),
+                      const SizedBox(height: 20),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.white10),
+                        ),
+                        child: Column(
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const Expanded(
+                                  child: Text(
+                                    'Translate & Export (Quality Mode)',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                                Switch(
+                                  value: !_skipTranslation,
+                                  activeColor: const Color(0xFF3B82F6),
+                                  onChanged: (val) => setState(() => _skipTranslation = !val),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _skipTranslation 
+                                ? 'Quickly packages existing translations (Fastest).'
+                                : 'Scans and fixes missing or broken paragraphs (Best Quality).',
+                              style: const TextStyle(
+                                color: Colors.white54,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ],
-                  ),
-                  Row(
-                    children: [
-                      const Text(
-                        'End Chapter: ',
-                        style: TextStyle(color: Colors.white),
-                      ),
-                      Expanded(
-                        child: Slider(
-                          value: endChapter.toDouble(),
-                          min: 1,
-                          max: 100,
-                          activeColor: const Color(0xFF3B82F6),
-                          onChanged: (val) => setState(
-                            () => endChapter = val.toInt() >= startChapter
-                                ? val.toInt()
-                                : startChapter,
+                      const SizedBox(height: 16),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Bilingual (Original + ${settingsState is SettingsLoaded ? settingsState.settings.targetLanguage : "Arabic"}):',
+                              style: const TextStyle(color: Colors.white, fontSize: 13),
+                            ),
                           ),
+                          Switch(
+                            value: _exportIsBilingual,
+                            activeColor: const Color(0xFF3B82F6),
+                            onChanged: (val) => setState(() => _exportIsBilingual = val),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text(
+                        'Cancel',
+                        style: TextStyle(color: Colors.white54),
+                      ),
+                    ),
+                    ElevatedButton(
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        _runExport(
+                          book, 
+                          isBilingual: _exportIsBilingual,
+                          skipTranslation: _skipTranslation,
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF3B82F6),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
                         ),
                       ),
-                      Text(
-                        '$endChapter',
+                      child: Text(
+                        _skipTranslation ? 'Quick Export' : 'Translate & Export',
                         style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                    ],
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text(
-                    'Cancel',
-                    style: TextStyle(color: Colors.white54),
-                  ),
-                ),
-                TextButton(
-                  onPressed: () {
-                    Navigator.pop(ctx);
-                    _runExport(book, startChapter, endChapter);
-                  },
-                  child: const Text(
-                    'Export',
-                    style: TextStyle(
-                      color: Color(0xFF3B82F6),
-                      fontWeight: FontWeight.bold,
                     ),
-                  ),
-                ),
-              ],
+                  ],
+                );
+              },
             );
           },
         );
       },
+    );
+  }
+
+  Widget _buildBookItem(BuildContext context, Book book) {
+    return AspectRatio(
+      aspectRatio: 0.65,
+      child: BookCard(
+        book: book,
+        onDelete: () => context.read<LibraryCubit>().deleteBook(book.id),
+        onExport: () => _showExportDialog(context, book),
+        onStatusChanged: (status) =>
+            context.read<LibraryCubit>().changeBookStatus(book, status),
+        onToggleFavorite: () =>
+            context.read<LibraryCubit>().toggleFavorite(book),
+        onTogglePin: () => context.read<LibraryCubit>().togglePin(book),
+        onSearchCover: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => CoverSearchPage(book: book),
+          ),
+        ),
+      ),
     );
   }
 
@@ -249,95 +264,16 @@ class _LibraryPageState extends State<LibraryPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      key: _scaffoldKey,
       backgroundColor: AppColors.background,
-      drawer: Drawer(
-        backgroundColor: AppColors.background,
-        elevation: 0,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.horizontal(right: Radius.circular(24)),
-        ),
-        child: SafeArea(
-          child: Column(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 32,
-                ),
-                alignment: Alignment.centerLeft,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        gradient: AppColors.primaryGradient,
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.primary.withValues(alpha: 0.3),
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: const Icon(
-                        Icons.translate_rounded,
-                        size: 36,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    const Text(
-                      'EPub Translate',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: -0.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(
-                color: AppColors.border,
-                height: 1,
-                indent: 24,
-                endIndent: 24,
-              ),
-              const SizedBox(height: 16),
-              _buildDrawerItem(
-                icon: Icons.library_books_rounded,
-                title: 'My Library',
-                onTap: () => Navigator.pop(context),
-                isSelected: true,
-              ),
-              _buildDrawerItem(
-                icon: Icons.folder_open_rounded,
-                title: 'Exported Files',
-                onTap: () {
-                  Navigator.pop(context);
-                  context.push('/exported-files');
-                },
-              ),
-              const Spacer(),
-              _buildDrawerItem(
-                icon: Icons.settings_rounded,
-                title: 'Settings',
-                onTap: () {
-                  Navigator.pop(context);
-                  context.push('/settings');
-                },
-              ),
-              const SizedBox(height: 16),
-            ],
-          ),
-        ),
-      ),
       body: Stack(
         children: [
+          // Background Wood Texture/Gradient
+          Container(
+            decoration: const BoxDecoration(
+              gradient: AppColors.woodGradient,
+            ),
+          ),
+
           Positioned(
             top: -150,
             right: -50,
@@ -348,30 +284,14 @@ class _LibraryPageState extends State<LibraryPage> {
                 shape: BoxShape.circle,
                 gradient: RadialGradient(
                   colors: [
-                    AppColors.primary.withValues(alpha: 0.15),
+                    AppColors.primary.withValues(alpha: 0.1),
                     Colors.transparent,
                   ],
                 ),
               ),
             ),
           ),
-          Positioned(
-            bottom: -100,
-            left: -100,
-            child: Container(
-              width: 300,
-              height: 300,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [
-                    AppColors.secondary.withValues(alpha: 0.1),
-                    Colors.transparent,
-                  ],
-                ),
-              ),
-            ),
-          ),
+
           SafeArea(
             child: CustomScrollView(
               physics: const BouncingScrollPhysics(),
@@ -385,147 +305,38 @@ class _LibraryPageState extends State<LibraryPage> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Container(
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.1),
-                            ),
-                          ),
-                          child: IconButton(
-                            tooltip: 'Menu',
-                            icon: const Icon(
-                              Icons.menu_rounded,
-                              size: 28,
-                              color: Colors.white,
-                            ),
-                            onPressed: () =>
-                                _scaffoldKey.currentState?.openDrawer(),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Your Library',
-                                style: TextStyle(
-                                  fontSize: 28,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                  letterSpacing: -0.5,
-                                ),
+                                'The Grand Library',
+                                style: Theme.of(context).textTheme.displayLarge,
                               ),
-                              SizedBox(height: 4),
+                              const SizedBox(height: 4),
                               Text(
-                                'Dive into your next adventure',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  color: Colors.white60,
-                                ),
+                                'Curating your digital literary collection',
+                                style: Theme.of(context).textTheme.bodyMedium,
                               ),
                             ],
                           ),
                         ),
-                        Row(
-                          children: [
-                            Container(
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.1),
-                                ),
+                        Container(
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: AppColors.primary,
+                            boxShadow: [
+                              BoxShadow(
+                                color: AppColors.primary.withValues(alpha: 0.3),
+                                blurRadius: 12,
+                                offset: const Offset(0, 4),
                               ),
-                              child: PopupMenuButton<String>(
-                                tooltip: 'Sort By',
-                                icon: const Icon(
-                                  Icons.sort_rounded,
-                                  size: 26,
-                                  color: Colors.white,
-                                ),
-                                color: const Color(
-                                  0xFF1E293B,
-                                ).withValues(alpha: 0.95),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                                onSelected: (value) {
-                                  setState(() {
-                                    _sortOption = value;
-                                  });
-                                },
-                                itemBuilder: (context) => const [
-                                  PopupMenuItem(
-                                    value: 'newest',
-                                    child: Text(
-                                      'Newest Added',
-                                      style: TextStyle(color: Colors.white),
-                                    ),
-                                  ),
-                                  PopupMenuItem(
-                                    value: 'title',
-                                    child: Text(
-                                      'Title (A-Z)',
-                                      style: TextStyle(color: Colors.white),
-                                    ),
-                                  ),
-                                  PopupMenuItem(
-                                    value: 'author',
-                                    child: Text(
-                                      'Author',
-                                      style: TextStyle(color: Colors.white),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Container(
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.1),
-                                ),
-                              ),
-                              child: IconButton(
-                                tooltip: 'Settings',
-                                icon: const Icon(
-                                  Icons.settings_rounded,
-                                  size: 26,
-                                  color: Colors.white,
-                                ),
-                                onPressed: () => context.push('/settings'),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Container(
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: AppColors.primary,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: AppColors.primary.withValues(
-                                      alpha: 0.4,
-                                    ),
-                                    blurRadius: 8,
-                                    offset: const Offset(0, 4),
-                                  ),
-                                ],
-                              ),
-                              child: IconButton(
-                                tooltip: 'Add EPUB Book',
-                                icon: const Icon(
-                                  Icons.add_rounded,
-                                  size: 28,
-                                  color: Colors.white,
-                                ),
-                                onPressed: () => context
-                                    .read<LibraryCubit>()
-                                    .pickAndImportBook(),
-                              ),
-                            ),
-                          ],
+                            ],
+                          ),
+                          child: IconButton(
+                            icon: const Icon(Icons.add, color: AppColors.background),
+                            onPressed: () => context.read<LibraryCubit>().pickAndImportBook(),
+                          ),
                         ),
                       ],
                     ),
@@ -659,6 +470,11 @@ class _LibraryPageState extends State<LibraryPage> {
                       }
 
                       List<Book> filteredBooks = state.books;
+                      
+                      if (_showOnlyGenerated) {
+                        filteredBooks = filteredBooks.where((b) => b.filePath.contains('/converted/')).toList();
+                      }
+
                       if (_selectedTab == 'Want to Read') {
                         filteredBooks = filteredBooks
                             .where((b) => b.status == 'want_to_read')
@@ -688,12 +504,8 @@ class _LibraryPageState extends State<LibraryPage> {
                               .toLowerCase()
                               .compareTo((b.author ?? 'Unknown').toLowerCase()),
                         );
-                      } else {
-                        // 'newest' default
-                        filteredBooks.sort(
-                          (a, b) => b.addedAt.compareTo(a.addedAt),
-                        );
                       }
+
                       if (filteredBooks.isEmpty) {
                         return SliverFillRemaining(
                           child: Center(
@@ -708,52 +520,69 @@ class _LibraryPageState extends State<LibraryPage> {
                         );
                       }
 
+                      final rowCount = (filteredBooks.length / 2).ceil();
+                      
                       return SliverPadding(
                         padding: const EdgeInsets.symmetric(horizontal: 24),
-                        sliver: SliverGrid(
-                          gridDelegate:
-                              const SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 2,
-                                childAspectRatio: 0.65,
-                                crossAxisSpacing: 20,
-                                mainAxisSpacing: 30,
-                              ),
-                          delegate: SliverChildBuilderDelegate((
-                            context,
-                            index,
-                          ) {
-                            final book = filteredBooks[index];
-                            return GestureDetector(
-                              onTap: () => context.push('/reader', extra: book),
-                              child: BookCard(
-                                book: book,
-                                onDelete: () => context
-                                    .read<LibraryCubit>()
-                                    .deleteBook(book.id),
-                                onExport: () =>
-                                    _showExportDialog(context, book),
-                                onStatusChanged: (status) => context
-                                    .read<LibraryCubit>()
-                                    .changeBookStatus(book, status),
-                                onToggleFavorite: () => context
-                                    .read<LibraryCubit>()
-                                    .toggleFavorite(book),
-                                onSearchCover: () => Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => CoverSearchPage(book: book),
+                        sliver: SliverList(
+                          delegate: SliverChildBuilderDelegate(
+                            (context, rowIndex) {
+                              final firstBookIndex = rowIndex * 2;
+                              final secondBookIndex = firstBookIndex + 1;
+                              
+                              return Column(
+                                children: [
+                                  Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(
+                                        child: _buildBookItem(context, filteredBooks[firstBookIndex]),
+                                      ),
+                                      const SizedBox(width: 20),
+                                      Expanded(
+                                        child: secondBookIndex < filteredBooks.length
+                                            ? _buildBookItem(context, filteredBooks[secondBookIndex])
+                                            : const SizedBox.shrink(),
+                                      ),
+                                    ],
                                   ),
-                                ),
-                              ),
-                            );
-                          }, childCount: filteredBooks.length),
+                                  const SizedBox(height: 12),
+                                  // The Shelf
+                                  Container(
+                                    height: 12,
+                                    margin: const EdgeInsets.only(bottom: 30),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF3D2B1F),
+                                      borderRadius: BorderRadius.circular(4),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withOpacity(0.5),
+                                          blurRadius: 8,
+                                          offset: const Offset(0, 4),
+                                        ),
+                                      ],
+                                      gradient: LinearGradient(
+                                        colors: [
+                                          const Color(0xFF4D3B2F),
+                                          const Color(0xFF2D1B10),
+                                        ],
+                                        begin: Alignment.topCenter,
+                                        end: Alignment.bottomCenter,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
+                            childCount: rowCount,
+                          ),
                         ),
                       );
                     } else if (state is LibraryError) {
                       return SliverFillRemaining(
                         child: Center(
                           child: Text(
-                            'Error: \${state.message}',
+                            'Error: ${state.message}',
                             style: const TextStyle(color: Colors.redAccent),
                           ),
                         ),

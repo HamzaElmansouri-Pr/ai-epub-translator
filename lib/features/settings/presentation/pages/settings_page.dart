@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:epub_translate_meaning/core/di/injection.dart';
 import 'package:epub_translate_meaning/core/services/tts_service.dart';
@@ -6,6 +8,7 @@ import 'package:epub_translate_meaning/core/theme/app_colors.dart';
 import 'package:epub_translate_meaning/features/settings/domain/entities/user_settings.dart';
 import 'package:epub_translate_meaning/features/settings/presentation/cubit/settings_cubit.dart';
 import 'package:epub_translate_meaning/features/settings/presentation/cubit/settings_state.dart';
+import 'package:epub_translate_meaning/features/library/domain/usecases/pdf_to_epub_usecase.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -16,6 +19,7 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   List<Map<String, String>> _availableVoices = [];
+  bool _isVerifyingKey = false;
 
   @override
   void initState() {
@@ -75,6 +79,8 @@ class _SettingsPageState extends State<SettingsPage> {
       children: [
         _buildSectionTitle('General configuration'),
         _buildLanguageSelector(settings),
+        const SizedBox(height: 16),
+        _buildAutoImportSection(settings),
         const SizedBox(height: 24),
         _buildSectionTitle('Voice Settings'),
         _buildVoiceSelectors(settings),
@@ -82,9 +88,7 @@ class _SettingsPageState extends State<SettingsPage> {
         _buildSectionTitle('Subscription Tier'),
         _buildTierInfo(settings),
         const SizedBox(height: 16),
-        if (settings.tier == AppTier.starter) _buildProActivationCard(settings),
-        if (settings.tier == AppTier.pro) _buildProStatusCard(settings),
-        if (settings.tier == AppTier.elite) _buildEliteStatusCard(settings),
+        _buildProActivationCard(settings),
         const SizedBox(height: 32),
         _buildSectionTitle('Premium Features'),
         _buildEliteFeatures(settings),
@@ -179,7 +183,6 @@ class _SettingsPageState extends State<SettingsPage> {
       return const Center(child: Text('Loading voices...'));
     }
     
-    // Sort voices to show Arabic first if we want
     final sortedVoices = List<Map<String, String>>.from(_availableVoices);
     sortedVoices.sort((a, b) {
       final aIsAr = (a['locale'] ?? '').toLowerCase().startsWith('ar');
@@ -198,7 +201,6 @@ class _SettingsPageState extends State<SettingsPage> {
       );
     }).toList();
 
-    // ensure current values are in list or fallback
     String? currentTtsVoice = settings.ttsVoice;
     if (currentTtsVoice != null && !voiceItems.any((e) => e.value == currentTtsVoice)) {
       currentTtsVoice = null;
@@ -249,6 +251,7 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
     );
   }
+
   Widget _buildTierInfo(UserSettings settings) {
     Color tierColor = AppColors.textSecondary;
     String tierName = 'Starter (Free)';
@@ -310,9 +313,10 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Widget _buildProActivationCard(UserSettings settings) {
-    final controller = TextEditingController(
-      text: settings.customGeminiKey ?? '',
-    );
+    final geminiController = TextEditingController(text: settings.customGeminiKey ?? '');
+    final groqController = TextEditingController(text: settings.customGroqKey ?? '');
+    
+    final currentService = settings.preferredProService; // 'Gemini' or 'Groq'
 
     return Container(
       decoration: BoxDecoration(
@@ -340,109 +344,142 @@ class _SettingsPageState extends State<SettingsPage> {
                     color: AppColors.primary.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: const Icon(
-                    Icons.vpn_key_rounded,
-                    color: AppColors.primary,
-                    size: 20,
-                  ),
+                  child: const Icon(Icons.vpn_key_rounded, color: AppColors.primary, size: 20),
                 ),
                 const SizedBox(width: 12),
                 const Text(
-                  'Activate Pro',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
-                    color: Colors.white,
-                  ),
+                  'Pro Configuration',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            Text(
-              'Enter your Google AI Studio API key to get unlimited translations and bypass the daily limit.',
-              style: TextStyle(
-                fontSize: 14,
-                color: AppColors.textSecondary.withValues(alpha: 0.9),
-                height: 1.4,
-              ),
-            ),
-            const SizedBox(height: 20),
-            TextField(
-              controller: controller,
-              obscureText: true,
-              style: const TextStyle(color: Colors.white),
-              decoration: InputDecoration(
-                hintText: 'Enter Gemini API Key',
-                hintStyle: TextStyle(
-                  color: AppColors.textMuted.withValues(alpha: 0.5),
-                ),
-                filled: true,
-                fillColor: AppColors.background,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 14,
-                ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: AppColors.primary),
-                ),
-              ),
-            ),
             const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: ElevatedButton(
-                onPressed: () {
-                  if (controller.text.isNotEmpty) {
-                    context.read<SettingsCubit>().updateGeminiKey(
-                      controller.text,
-                    );
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: const Row(
-                          children: [
-                            Icon(
-                              Icons.check_circle_rounded,
-                              color: Colors.white,
-                            ),
-                            SizedBox(width: 12),
-                            Text('API Key saved successfully!'),
-                          ],
-                        ),
-                        backgroundColor: AppColors.success,
-                        behavior: SnackBarBehavior.floating,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                    );
-                  }
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  elevation: 0,
-                ),
-                child: const Text(
-                  'Save Key',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
+            const Text(
+              'Choose your high-accuracy conversion service:',
+              style: TextStyle(fontSize: 14, color: Colors.white70),
             ),
+            const SizedBox(height: 12),
+            
+            // Service Selector
+            Row(
+              children: [
+                _buildServiceChip('Gemini', currentService == 'Gemini'),
+                const SizedBox(width: 12),
+                _buildServiceChip('Groq', currentService == 'Groq'),
+              ],
+            ),
+            
+            const SizedBox(height: 20),
+            
+            // Key Field Based on Selection
+            if (currentService == 'Gemini') ...[
+               _buildKeyFieldWithVerify(
+                title: 'Google AI Studio Key',
+                hint: 'Enter Gemini API Key',
+                controller: geminiController,
+                onSave: (val) => context.read<SettingsCubit>().updateGeminiKey(val),
+              ),
+            ] else ...[
+               _buildKeyFieldWithVerify(
+                title: 'Groq Cloud Key',
+                hint: 'Enter Groq API Key',
+                controller: groqController,
+                onSave: (val) => context.read<SettingsCubit>().updateGroqKey(val),
+              ),
+            ],
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildServiceChip(String label, bool isSelected) {
+    return GestureDetector(
+      onTap: () => context.read<SettingsCubit>().updatePreferredProService(label),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.primary : AppColors.background,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: isSelected ? AppColors.primary : Colors.white10),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? Colors.white : Colors.white60,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildKeyFieldWithVerify({
+    required String title,
+    required String hint,
+    required TextEditingController controller,
+    required Function(String) onSave,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        TextField(
+          controller: controller,
+          obscureText: true,
+          style: const TextStyle(color: Colors.white),
+          decoration: InputDecoration(
+            hintText: hint,
+            hintStyle: TextStyle(color: AppColors.textMuted.withValues(alpha: 0.5)),
+            filled: true,
+            fillColor: AppColors.background,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppColors.primary)),
+          ),
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          height: 48,
+          child: ElevatedButton(
+            onPressed: _isVerifyingKey ? null : () async {
+              if (controller.text.isNotEmpty) {
+                setState(() => _isVerifyingKey = true);
+                try {
+                  await onSave(controller.text);
+                  final isWorking = await getIt<PdfToEpubUseCase>().checkApiStatus();
+                  
+                  if (isWorking && mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('API Key verified and saved!'), backgroundColor: AppColors.success),
+                    );
+                  } else if (!isWorking) {
+                    throw Exception('API verified but test request failed.');
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Verification failed: $e'), backgroundColor: Colors.red),
+                    );
+                  }
+                } finally {
+                  if (mounted) setState(() => _isVerifyingKey = false);
+                }
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: _isVerifyingKey 
+              ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+              : const Text('Verify and Save Key', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ),
+      ],
     );
   }
 
@@ -454,139 +491,20 @@ class _SettingsPageState extends State<SettingsPage> {
         border: Border.all(color: AppColors.secondary.withValues(alpha: 0.3)),
       ),
       child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 20,
-          vertical: 12,
-        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         leading: Container(
           padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: AppColors.secondary.withValues(alpha: 0.15),
-            shape: BoxShape.circle,
-          ),
-          child: const Icon(
-            Icons.star_rounded,
-            color: AppColors.secondary,
-            size: 28,
-          ),
+          decoration: BoxDecoration(color: AppColors.secondary.withValues(alpha: 0.15), shape: BoxShape.circle),
+          child: const Icon(Icons.star_rounded, color: AppColors.secondary, size: 28),
         ),
-        title: const Text(
-          'Elite Activated',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 16,
-            color: Colors.white,
-          ),
-        ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: Text(
-            'Unlimited translations with premium models',
-            style: TextStyle(
-              color: AppColors.textSecondary.withValues(alpha: 0.9),
-            ),
-          ),
-        ),
+        title: const Text('Elite Activated', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.white)),
+        subtitle: const Text('Unlimited translations with premium models', style: TextStyle(color: Colors.white70)),
         trailing: OutlinedButton(
           onPressed: () {
             context.read<SettingsCubit>().updateOpenAIKey('');
             context.read<SettingsCubit>().updateClaudeKey('');
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: const Text('Elite API Keys removed'),
-                backgroundColor: AppColors.surface,
-                behavior: SnackBarBehavior.floating,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            );
           },
-          style: OutlinedButton.styleFrom(
-            foregroundColor: Colors.redAccent,
-            side: const BorderSide(color: Colors.redAccent),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-          child: const Text(
-            'Remove Key',
-            style: TextStyle(fontWeight: FontWeight.w600),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildProStatusCard(UserSettings settings) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.success.withValues(alpha: 0.3)),
-      ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 20,
-          vertical: 12,
-        ),
-        leading: Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: AppColors.success.withValues(alpha: 0.15),
-            shape: BoxShape.circle,
-          ),
-          child: const Icon(
-            Icons.check_circle_rounded,
-            color: AppColors.success,
-            size: 28,
-          ),
-        ),
-        title: const Text(
-          'Pro Activated',
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 16,
-            color: Colors.white,
-          ),
-        ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 4),
-          child: Text(
-            'Using your personal API key',
-            style: TextStyle(
-              color: AppColors.textSecondary.withValues(alpha: 0.9),
-            ),
-          ),
-        ),
-        trailing: OutlinedButton(
-          onPressed: () {
-            context.read<SettingsCubit>().updateGeminiKey('');
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: const Text('API Key removed'),
-                backgroundColor: AppColors.surface,
-                behavior: SnackBarBehavior.floating,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            );
-          },
-          style: OutlinedButton.styleFrom(
-            side: const BorderSide(color: AppColors.error),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-          ),
-          child: const Text(
-            'Remove',
-            style: TextStyle(
-              color: AppColors.error,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
+          child: const Text('Remove'),
         ),
       ),
     );
@@ -603,41 +521,11 @@ class _SettingsPageState extends State<SettingsPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          const Row(
             children: [
-              const Icon(
-                Icons.auto_awesome_rounded,
-                color: AppColors.secondary,
-              ),
-              const SizedBox(width: 8),
-              const Text(
-                'Elite Tier APIs',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
-                  color: Colors.white,
-                ),
-              ),
-              const Spacer(),
-              if (settings.tier == AppTier.elite)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.secondary.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Text(
-                    'ACTIVE',
-                    style: TextStyle(
-                      color: AppColors.secondary,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
+              Icon(Icons.auto_awesome_rounded, color: AppColors.secondary),
+              SizedBox(width: 8),
+              Text('Elite Tier APIs', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.white)),
             ],
           ),
           const SizedBox(height: 16),
@@ -647,8 +535,7 @@ class _SettingsPageState extends State<SettingsPage> {
             icon: Icons.chat_bubble_outline,
             color: Colors.greenAccent,
             value: settings.customOpenAIKey,
-            onChanged: (val) =>
-                context.read<SettingsCubit>().updateOpenAIKey(val),
+            onChanged: (val) => context.read<SettingsCubit>().updateOpenAIKey(val),
           ),
           const SizedBox(height: 16),
           _buildApiKeyField(
@@ -657,8 +544,7 @@ class _SettingsPageState extends State<SettingsPage> {
             icon: Icons.psychology,
             color: Colors.orangeAccent,
             value: settings.customClaudeKey,
-            onChanged: (val) =>
-                context.read<SettingsCubit>().updateClaudeKey(val),
+            onChanged: (val) => context.read<SettingsCubit>().updateClaudeKey(val),
           ),
           if (settings.tier == AppTier.elite) ...[
             const SizedBox(height: 24),
@@ -673,55 +559,25 @@ class _SettingsPageState extends State<SettingsPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Preferred Model',
-          style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-        ),
+        const Text('Preferred Model', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
         const SizedBox(height: 8),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          decoration: BoxDecoration(
-            color: AppColors.primary.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(12),
-          ),
+          decoration: BoxDecoration(color: AppColors.primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
           child: DropdownButton<String>(
             isExpanded: true,
-            value:
-                [
-                  'gpt-4o',
-                  'gpt-4o-mini',
-                  'claude-3-5-sonnet-20240620',
-                ].contains(settings.preferredEliteModel)
-                ? settings.preferredEliteModel
-                : 'gpt-4o',
+            value: settings.preferredEliteModel,
             dropdownColor: AppColors.surface,
-            icon: const Icon(
-              Icons.keyboard_arrow_down_rounded,
-              color: AppColors.primary,
-            ),
+            icon: const Icon(Icons.keyboard_arrow_down_rounded, color: AppColors.primary),
             underline: const SizedBox(),
-            style: const TextStyle(
-              color: AppColors.primary,
-              fontWeight: FontWeight.bold,
-              fontSize: 14,
-            ),
+            style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 14),
             onChanged: (String? newValue) {
-              if (newValue != null) {
-                context.read<SettingsCubit>().updatePreferredEliteModel(
-                  newValue,
-                );
-              }
+              if (newValue != null) context.read<SettingsCubit>().updatePreferredEliteModel(newValue);
             },
             items: const [
               DropdownMenuItem(value: 'gpt-4o', child: Text('OpenAI GPT-4o')),
-              DropdownMenuItem(
-                value: 'gpt-4o-mini',
-                child: Text('OpenAI GPT-4o-mini'),
-              ),
-              DropdownMenuItem(
-                value: 'claude-3-5-sonnet-20240620',
-                child: Text('Claude 3.5 Sonnet'),
-              ),
+              DropdownMenuItem(value: 'gpt-4o-mini', child: Text('OpenAI GPT-4o-mini')),
+              DropdownMenuItem(value: 'claude-3-5-sonnet-20240620', child: Text('Claude 3.5 Sonnet')),
             ],
           ),
         ),
@@ -740,50 +596,148 @@ class _SettingsPageState extends State<SettingsPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Icon(icon, size: 16, color: color),
-            const SizedBox(width: 8),
-            Text(
-              title,
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-            ),
-          ],
-        ),
-        Text(
-          subtitle,
-          style: TextStyle(
-            fontSize: 12,
-            color: AppColors.textSecondary.withValues(alpha: 0.8),
-          ),
-        ),
+        Row(children: [Icon(icon, size: 16, color: color), const SizedBox(width: 8), Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14))]),
+        Text(subtitle, style: const TextStyle(fontSize: 12, color: Colors.white54)),
         const SizedBox(height: 8),
         TextField(
-          controller: TextEditingController(text: value)
-            ..selection = TextSelection.collapsed(offset: value?.length ?? 0),
+          controller: TextEditingController(text: value)..selection = TextSelection.collapsed(offset: value?.length ?? 0),
           obscureText: true,
           style: const TextStyle(color: Colors.white, fontSize: 14),
+          onChanged: onChanged,
           decoration: InputDecoration(
-            hintText: 'Paste your API key here...',
-            hintStyle: TextStyle(
-              color: AppColors.textSecondary.withValues(alpha: 0.3),
-            ),
+            hintText: 'Paste key here...',
             filled: true,
             fillColor: Colors.black12,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 12,
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none,
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: color.withValues(alpha: 0.5)),
-            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
           ),
-          onChanged: onChanged,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAutoImportSection(UserSettings settings) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.2),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              if (settings.autoImportFolderPaths.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.folder_off_rounded,
+                        size: 48,
+                        color: AppColors.textMuted.withValues(alpha: 0.5),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'No auto-import folders configured',
+                        style: TextStyle(color: AppColors.textMuted),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: settings.autoImportFolderPaths.length,
+                  separatorBuilder: (context, index) => Divider(
+                    height: 1,
+                    color: Colors.white.withValues(alpha: 0.05),
+                    indent: 64,
+                  ),
+                  itemBuilder: (context, index) {
+                    final path = settings.autoImportFolderPaths[index];
+                    return ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                      leading: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(
+                          Icons.folder_rounded,
+                          color: AppColors.primary,
+                          size: 20,
+                        ),
+                      ),
+                      title: Text(
+                        path.split(Platform.pathSeparator).last,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      subtitle: Text(
+                        path,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: AppColors.textSecondary.withValues(alpha: 0.5),
+                          fontSize: 11,
+                        ),
+                      ),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.remove_circle_outline_rounded, color: Colors.redAccent, size: 20),
+                        onPressed: () => context.read<SettingsCubit>().removeAutoImportFolder(path),
+                      ),
+                    );
+                  },
+                ),
+              
+              // Add Folder Button
+              InkWell(
+                onTap: () async {
+                  String? result = await FilePicker.platform.getDirectoryPath();
+                  if (result != null && mounted) {
+                    context.read<SettingsCubit>().addAutoImportFolder(result);
+                  }
+                },
+                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      top: BorderSide(color: Colors.white.withValues(alpha: 0.05)),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.add_rounded, color: AppColors.primary, size: 20),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'Add Import Folder',
+                        style: TextStyle(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ],
     );

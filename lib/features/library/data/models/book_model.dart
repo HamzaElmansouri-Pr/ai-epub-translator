@@ -10,7 +10,9 @@ class BookModel extends Book {
     super.lastReadAt,
     super.status = 'reading',
     super.isFavorite = false,
+    super.isPinned = false,
     super.coverUrl,
+    super.readingProgress = 0.0,
   });
 
   factory BookModel.fromJson(Map<String, dynamic> json) {
@@ -25,7 +27,9 @@ class BookModel extends Book {
           : null,
       status: json['status'] ?? 'reading',
       isFavorite: json['isFavorite'] == 1 || json['isFavorite'] == true,
+      isPinned: json['isPinned'] == 1 || json['isPinned'] == true,
       coverUrl: json['coverUrl'],
+      readingProgress: (json['readingProgress'] as num?)?.toDouble() ?? 0.0,
     );
   }
 
@@ -39,7 +43,9 @@ class BookModel extends Book {
       'lastReadAt': lastReadAt?.toIso8601String(),
       'status': status,
       'isFavorite': isFavorite ? 1 : 0,
+      'isPinned': isPinned ? 1 : 0,
       'coverUrl': coverUrl,
+      'readingProgress': readingProgress,
     };
   }
 
@@ -53,7 +59,9 @@ class BookModel extends Book {
       lastReadAt: book.lastReadAt,
       status: book.status,
       isFavorite: book.isFavorite,
+      isPinned: book.isPinned,
       coverUrl: book.coverUrl,
+      readingProgress: book.readingProgress,
     );
   }
 }

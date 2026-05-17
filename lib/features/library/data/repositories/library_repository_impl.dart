@@ -1,10 +1,12 @@
 import 'package:dartz/dartz.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:epub_translate_meaning/core/error/failures.dart';
 import 'package:epub_translate_meaning/features/library/data/datasources/local_book_datasource.dart';
 import 'package:epub_translate_meaning/features/library/data/models/book_model.dart';
 import 'package:epub_translate_meaning/features/library/domain/entities/book.dart';
 import 'package:epub_translate_meaning/features/library/domain/repositories/library_repository.dart';
 import 'package:epubx/epubx.dart';
+import 'package:syncfusion_flutter_pdf/pdf.dart';
 import 'package:flutter/foundation.dart';
 import 'package:injectable/injectable.dart';
 import 'package:uuid/uuid.dart';
@@ -51,7 +53,13 @@ class LibraryRepositoryImpl implements LibraryRepository {
     String title,
     Uint8List bytes,
   ) async {
-    return _parseAndSave('memory://$title', bytes, epubBytes: bytes);
+    if (kIsWeb) {
+      return _parseAndSave('memory://$title', bytes, epubBytes: bytes);
+    }
+    final appDir = await getApplicationDocumentsDirectory();
+    final safeTitle = title.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_').trim();
+    final filePath = '${appDir.path}/imported/$safeTitle.epub';
+    return _parseAndSave(filePath, bytes, epubBytes: bytes);
   }
 
   Future<Either<Failure, Book>> _parseAndSave(
@@ -60,19 +68,49 @@ class LibraryRepositoryImpl implements LibraryRepository {
     Uint8List? epubBytes,
   }) async {
     try {
-      final epubBook = await EpubReader.readBook(bytes);
+      final isPdf = filePath.toLowerCase().endsWith('.pdf');
+      final parts = filePath.split(RegExp(r'[/\\]'));
+      String title = parts.isNotEmpty ? parts.last : filePath;
+      title = title.replaceAll(isPdf ? '.pdf' : '.epub', '');
+      String? author;
+
+      if (isPdf) {
+        // We don't need to parse the whole book just for metadata if we want it fast,
+        // but Syncfusion's PdfDocument is fast for metadata.
+        try {
+          final document = PdfDocument(inputBytes: bytes);
+          title = document.documentInformation.title.isNotEmpty 
+              ? document.documentInformation.title 
+              : title;
+          author = document.documentInformation.author.isNotEmpty 
+              ? document.documentInformation.author 
+              : null;
+          document.dispose();
+        } catch (e) {
+          debugPrint('PdfDocument metadata parse failed: $e');
+        }
+      } else {
+        try {
+          final epubBook = await EpubReader.readBook(bytes);
+          title = epubBook.Title ?? title;
+          author = epubBook.Author;
+        } catch (e) {
+          debugPrint('EpubReader metadata parse failed: $e');
+        }
+      }
+
+
       final bookModel = BookModel(
         id: uuid.v4(),
-        title:
-            epubBook.Title ?? filePath.split('/').last.replaceAll('.epub', ''),
-        author: epubBook.Author,
+        title: title,
+        author: author,
         filePath: filePath,
         addedAt: DateTime.now(),
       );
       await localDataSource.saveBook(bookModel, epubBytes: epubBytes ?? bytes);
       return Right(bookModel);
     } catch (e) {
-      return Left(FileFailure('Failed to parse ePub: $e'));
+      return Left(FileFailure('Failed to parse book: $e'));
     }
   }
 

@@ -6,8 +6,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 class ReaderDrawer extends StatefulWidget {
   final EpubController epubController;
+  final Function(int, int)? onJumpToParagraph;
   
-  const ReaderDrawer({super.key, required this.epubController});
+  const ReaderDrawer({super.key, required this.epubController, this.onJumpToParagraph});
 
   @override
   State<ReaderDrawer> createState() => _ReaderDrawerState();
@@ -35,6 +36,7 @@ class _ReaderDrawerState extends State<ReaderDrawer> with SingleTickerProviderSt
       child: SafeArea(
         child: Column(
           children: [
+            _buildResumePinButton(context),
             TabBar(
               controller: _tabController,
               indicatorColor: const Color(0xFF3B82F6),
@@ -42,7 +44,7 @@ class _ReaderDrawerState extends State<ReaderDrawer> with SingleTickerProviderSt
               unselectedLabelColor: Colors.white60,
               tabs: const [
                 Tab(icon: Icon(Icons.list), text: 'TOC'),
-                Tab(icon: Icon(Icons.bookmark), text: 'Bookmarks'),
+                Tab(icon: Icon(Icons.bookmark), text: 'Pins'),
                 Tab(icon: Icon(Icons.edit_note), text: 'Notes'),
               ],
             ),
@@ -59,6 +61,45 @@ class _ReaderDrawerState extends State<ReaderDrawer> with SingleTickerProviderSt
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildResumePinButton(BuildContext context) {
+    return BlocBuilder<ReaderCubit, ReaderState>(
+      builder: (context, state) {
+        if (state is! ReaderLoaded || state.bookmarks.isEmpty) return const SizedBox.shrink();
+        
+        final pin = state.bookmarks.first;
+        
+        return Container(
+          width: double.infinity,
+          margin: const EdgeInsets.all(16),
+          child: ElevatedButton.icon(
+            onPressed: () {
+              widget.onJumpToParagraph?.call(pin.chapterIndex, pin.paragraphIndex);
+              Navigator.pop(context);
+            },
+            icon: const Icon(Icons.push_pin, color: Colors.white),
+            label: const Text(
+              'RESUME FROM PIN',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1.2,
+              ),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFE23636),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              elevation: 8,
+              shadowColor: Colors.redAccent.withValues(alpha: 0.5),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -99,12 +140,13 @@ class _ReaderDrawerState extends State<ReaderDrawer> with SingleTickerProviderSt
             itemBuilder: (context, index) {
               final bookmark = state.bookmarks[index];
               return ListTile(
+                leading: const Icon(Icons.push_pin, color: Color(0xFFE23636)),
                 title: Text(
-                  (bookmark.title ?? 'Bookmark'),
+                  (bookmark.title ?? 'Pinned Spot'),
                   style: const TextStyle(color: Colors.white),
                 ),
                 subtitle: Text(
-                  bookmark.createdAt.toString().split('.')[0],
+                  'Paragraph ${bookmark.paragraphIndex}',
                   style: const TextStyle(color: Colors.white54),
                 ),
                 trailing: IconButton(
@@ -114,10 +156,7 @@ class _ReaderDrawerState extends State<ReaderDrawer> with SingleTickerProviderSt
                   },
                 ),
                 onTap: () {
-                  widget.epubController.jumpTo(
-                    index: bookmark.paragraphIndex,
-                    /* alignment: bookmark.scrollPosition... wait not supported */
-                  );
+                  widget.onJumpToParagraph?.call(bookmark.chapterIndex, bookmark.paragraphIndex);
                   Navigator.pop(context);
                 },
               );

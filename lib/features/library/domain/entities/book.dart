@@ -9,7 +9,9 @@ class Book extends Equatable {
   final DateTime? lastReadAt;
   final String status; // 'want_to_read', 'reading', 'finished'
   final bool isFavorite;
+  final bool isPinned;
   final String? coverUrl;
+  final double readingProgress;
 
   const Book({
     required this.id,
@@ -20,7 +22,9 @@ class Book extends Equatable {
     this.lastReadAt,
     this.status = 'reading',
     this.isFavorite = false,
+    this.isPinned = false,
     this.coverUrl,
+    this.readingProgress = 0.0,
   });
 
   Book copyWith({
@@ -32,7 +36,9 @@ class Book extends Equatable {
     DateTime? lastReadAt,
     String? status,
     bool? isFavorite,
+    bool? isPinned,
     String? coverUrl,
+    double? readingProgress,
   }) {
     return Book(
       id: id ?? this.id,
@@ -43,7 +49,9 @@ class Book extends Equatable {
       lastReadAt: lastReadAt ?? this.lastReadAt,
       status: status ?? this.status,
       isFavorite: isFavorite ?? this.isFavorite,
+      isPinned: isPinned ?? this.isPinned,
       coverUrl: coverUrl ?? this.coverUrl,
+      readingProgress: readingProgress ?? this.readingProgress,
     );
   }
 
@@ -57,6 +65,8 @@ class Book extends Equatable {
     lastReadAt,
     status,
     isFavorite,
+    isPinned,
     coverUrl,
+    readingProgress,
   ];
 }

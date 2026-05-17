@@ -7,14 +7,17 @@ abstract class SettingsLocalDataSource {
   Future<UserSettings> getSettings();
   Future<void> cacheTargetLanguage(String language);
   Future<void> cacheCustomGeminiKey(String? key);
+  Future<void> cacheCustomGroqKey(String? key);
   Future<void> cacheCustomOpenAIKey(String? key);
   Future<void> cacheCustomClaudeKey(String? key);
+  Future<void> cachePreferredProService(String service);
   Future<void> cachePreferredEliteModel(String model);
   Future<void> cacheReaderFontSize(double size);
   Future<void> cacheReaderFontFamily(String family);
   Future<void> cacheReaderBackgroundColor(String color);
   Future<void> cacheTtsVoice(String voice);
   Future<void> cacheBookVoice(String voice);
+  Future<void> cacheAutoImportFolderPaths(List<String> paths);
 }
 
 @LazySingleton(as: SettingsLocalDataSource)
@@ -24,14 +27,17 @@ class SettingsLocalDataSourceImpl implements SettingsLocalDataSource {
 
   static const String _langKey = 'target_language';
   static const String _geminiKey = 'custom_gemini_key';
+  static const String _groqKey = 'custom_groq_key';
   static const String _openAIKey = 'custom_openai_key';
   static const String _claudeKey = 'custom_claude_key';
+  static const String _proServiceKey = 'preferred_pro_service';
   static const String _eliteModelKey = 'preferred_elite_model';
   static const String _readerFontSizeKey = 'reader_font_size';
   static const String _readerFontFamilyKey = 'reader_font_family';
   static const String _readerBgColorKey = 'reader_bg_color';
   static const String _ttsVoiceKey = 'tts_voice';
   static const String _bookVoiceKey = 'book_voice';
+  static const String _autoImportFoldersKey = 'auto_import_folders';
 
   SettingsLocalDataSourceImpl(this.prefs);
 
@@ -39,20 +45,23 @@ class SettingsLocalDataSourceImpl implements SettingsLocalDataSource {
   Future<UserSettings> getSettings() async {
     final lang = prefs.getString(_langKey) ?? 'Arabic';
     final customKey = await secureStorage.read(key: _geminiKey);
+    final groqKey = await secureStorage.read(key: _groqKey);
     final openAIKey = await secureStorage.read(key: _openAIKey);
     final claudeKey = await secureStorage.read(key: _claudeKey);
+    final proService = prefs.getString(_proServiceKey) ?? 'Gemini';
     final eliteModel = prefs.getString(_eliteModelKey) ?? 'GPT-4o';
     final fontSize = prefs.getDouble(_readerFontSizeKey) ?? 18.0;
     final fontFamily = prefs.getString(_readerFontFamilyKey) ?? 'Merriweather';
     final bgColor = prefs.getString(_readerBgColorKey) ?? 'Dark';
     final ttsV = prefs.getString(_ttsVoiceKey);
     final bookV = prefs.getString(_bookVoiceKey);
+    final autoImportFolders = prefs.getStringList(_autoImportFoldersKey) ?? [];
 
     // Determine tier based on keys presence
     AppTier activeTier = AppTier.starter;
     if (openAIKey != null || claudeKey != null) {
       activeTier = AppTier.elite;
-    } else if (customKey != null) {
+    } else if (customKey != null || groqKey != null) {
       activeTier = AppTier.pro;
     }
 
@@ -60,17 +69,19 @@ class SettingsLocalDataSourceImpl implements SettingsLocalDataSource {
       tier: activeTier,
       targetLanguage: lang,
       customGeminiKey: customKey,
+      customGroqKey: groqKey,
       customOpenAIKey: openAIKey,
       customClaudeKey: claudeKey,
+      preferredProService: proService,
       preferredEliteModel: eliteModel,
       readerFontSize: fontSize,
       readerFontFamily: fontFamily,
       readerBackgroundColor: bgColor,
       ttsVoice: ttsV,
       bookVoice: bookV,
+      autoImportFolderPaths: autoImportFolders,
     );
   }
-
   @override
   Future<void> cacheTargetLanguage(String language) async {
     await prefs.setString(_langKey, language);
@@ -82,6 +93,15 @@ class SettingsLocalDataSourceImpl implements SettingsLocalDataSource {
       await secureStorage.delete(key: _geminiKey);
     } else {
       await secureStorage.write(key: _geminiKey, value: key);
+    }
+  }
+
+  @override
+  Future<void> cacheCustomGroqKey(String? key) async {
+    if (key == null || key.isEmpty) {
+      await secureStorage.delete(key: _groqKey);
+    } else {
+      await secureStorage.write(key: _groqKey, value: key);
     }
   }
 
@@ -101,6 +121,11 @@ class SettingsLocalDataSourceImpl implements SettingsLocalDataSource {
     } else {
       await secureStorage.write(key: _claudeKey, value: key);
     }
+  }
+
+  @override
+  Future<void> cachePreferredProService(String service) async {
+    await prefs.setString(_proServiceKey, service);
   }
 
   @override
@@ -131,5 +156,10 @@ class SettingsLocalDataSourceImpl implements SettingsLocalDataSource {
   @override
   Future<void> cacheBookVoice(String voice) async {
     await prefs.setString(_bookVoiceKey, voice);
+  }
+
+  @override
+  Future<void> cacheAutoImportFolderPaths(List<String> paths) async {
+    await prefs.setStringList(_autoImportFoldersKey, paths);
   }
 }

@@ -34,8 +34,8 @@ class _ExportedFilesPageState extends State<ExportedFilesPage> {
       final directoryPath = await exportService.getExportDirectory();
       final dir = Directory(directoryPath);
       if (await dir.exists()) {
-        final List<FileSystemEntity> entities = await dir.list().toList();
-        _files = entities.whereType<File>().toList();
+        final List<FileSystemEntity> entities = await dir.list(recursive: true).toList();
+        _files = entities.whereType<File>().where((f) => f.path.endsWith('.epub') || f.path.endsWith('.pdf') || f.path.endsWith('.md')).toList();
         // Sort by most recently modified
         _files.sort((a, b) {
           final aStat = a.statSync();

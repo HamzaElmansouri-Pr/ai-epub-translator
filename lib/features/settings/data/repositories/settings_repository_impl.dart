@@ -32,6 +32,16 @@ class SettingsRepositoryImpl implements SettingsRepository {
   }
 
   @override
+  Future<Either<Failure, Unit>> saveCustomGroqKey(String key) async {
+    try {
+      await dataSource.cacheCustomGroqKey(key);
+      return const Right(unit);
+    } catch (e) {
+      return const Left(CacheFailure('Failed to save Groq API key'));
+    }
+  }
+
+  @override
   Future<Either<Failure, Unit>> saveCustomOpenAIKey(String key) async {
     try {
       await dataSource.cacheCustomOpenAIKey(key);
@@ -48,6 +58,16 @@ class SettingsRepositoryImpl implements SettingsRepository {
       return const Right(unit);
     } catch (e) {
       return const Left(CacheFailure('Failed to save Claude key'));
+    }
+  }
+
+  @override
+  Future<Either<Failure, Unit>> savePreferredProService(String service) async {
+    try {
+      await dataSource.cachePreferredProService(service);
+      return const Right(unit);
+    } catch (e) {
+      return const Left(CacheFailure('Failed to save preferred service'));
     }
   }
 
@@ -118,6 +138,16 @@ class SettingsRepositoryImpl implements SettingsRepository {
       return const Right(unit);
     } catch (e) {
       return const Left(CacheFailure('Failed to save Book voice'));
+    }
+  }
+
+  @override
+  Future<Either<Failure, Unit>> saveAutoImportFolderPaths(List<String> paths) async {
+    try {
+      await dataSource.cacheAutoImportFolderPaths(paths);
+      return const Right(unit);
+    } catch (e) {
+      return Left(CacheFailure(e.toString()));
     }
   }
 }

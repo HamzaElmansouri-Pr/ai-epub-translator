@@ -46,94 +46,58 @@ class TranslationRepositoryImpl implements TranslationRepository {
     List<Translation> results = [];
     Failure? lastFailure;
 
-    // Batch translations into groups of 10 to avoid limits and token saturation
-    final batchSize = 10;
+    final targetLangCode = _getLangCode(targetLanguage);
+    final batchSize = useGoogleTranslate ? 10 : 20;
 
     for (int i = 0; i < texts.length; i += batchSize) {
       final chunk = texts.skip(i).take(batchSize).toList();
-
       bool successfulBatch = false;
-
       final chunkString = chunk.join('\n\n|||||||\n\n');
-      final chunkRes = await translate(
-        chunkString,
-        targetLanguage: targetLanguage,
-        bookId: bookId,
-        useGoogleTranslate:
-            useGoogleTranslate, // Apply batching to Google Translate too
-      );
+      
+      try {
+        final chunkRes = await translate(
+          chunkString,
+          targetLanguage: targetLanguage,
+          bookId: bookId,
+          useGoogleTranslate: useGoogleTranslate,
+        ).timeout(const Duration(seconds: 45));
 
-      chunkRes.fold(
-        (failure) {
-          lastFailure = failure;
-        },
-        (Translation translatedBlock) {
-          // Google Translate or Gemini might slightly modify spacing around the separator
-          final splits = translatedBlock.translation.split(
-            RegExp(r'\n*\s*\|{5,}\s*\n*'),
-          );
-          if (splits.length == chunk.length) {
-            successfulBatch = true;
-            for (int j = 0; j < chunk.length; j++) {
-              final originalText = chunk[j];
-              final translatedText = splits[j].trim();
-
-              final t = Translation(
-                original: originalText,
-                translation: translatedText,
-              );
-              results.add(t);
-
-              final hash = HashUtils.hashText(originalText);
-              final langPair = 'auto_$targetLanguage'.toLowerCase();
-              final effectiveBookId = bookId ?? 'global';
-              cacheDataSource.cacheTranslation(
-                effectiveBookId,
-                hash,
-                langPair,
-                t,
-                'batch',
-              );
+        chunkRes.fold(
+          (failure) => lastFailure = failure,
+          (Translation translatedBlock) {
+            final splits = translatedBlock.translation.split(RegExp(r'\n*\s*\|{5,}\s*\n*'));
+            if (splits.length == chunk.length) {
+              successfulBatch = true;
+              for (int j = 0; j < chunk.length; j++) {
+                final t = Translation(original: chunk[j], translation: splits[j].trim());
+                results.add(t);
+                final hash = HashUtils.hashText(chunk[j]);
+                final langPair = 'auto_$targetLangCode'.toLowerCase();
+                cacheDataSource.cacheTranslation(bookId ?? 'global', hash, langPair, t, 'batch');
+              }
             }
-          } else {
-            // If batch splitting failed, fallback to individual items
-            successfulBatch = false;
-          }
-        },
-      );
+          },
+        );
+      } catch (e) {
+        lastFailure = ServerFailure('Batch translation timed out at index $i');
+      }
 
       if (!successfulBatch) {
-        // If fallback is triggered, do them individually (and DO NOT abort if one fails)
-        for (final text in chunk) {
-          final res = await translate(
-            text,
-            targetLanguage: targetLanguage,
-            bookId: bookId,
-            useGoogleTranslate: useGoogleTranslate,
-          );
-
-          res.fold((l) {
-            lastFailure = l;
-          }, (r) => results.add(r));
-
-          // Wait to prevent 429 errors from APIs
-          if (useGoogleTranslate) {
-            await Future.delayed(const Duration(milliseconds: 1500));
-          } else {
-            await Future.delayed(const Duration(milliseconds: 300));
+        const int concurrentLimit = 5;
+        for (int k = 0; k < chunk.length; k += concurrentLimit) {
+          final subChunk = chunk.skip(k).take(concurrentLimit).toList();
+          final futures = subChunk.map((text) => translate(text, targetLanguage: targetLanguage, bookId: bookId, useGoogleTranslate: useGoogleTranslate).timeout(const Duration(seconds: 30)));
+          final subResults = await Future.wait(futures);
+          for (var res in subResults) {
+            res.fold((l) => lastFailure = l, (r) => results.add(r));
           }
         }
       } else {
-        // Add a brief delay between successful LLM/Google batches
-        await Future.delayed(const Duration(milliseconds: 600));
+        await Future.delayed(const Duration(milliseconds: 300));
       }
     }
 
-    if (results.isEmpty && texts.isNotEmpty) {
-      return Left(
-        lastFailure ?? const ServerFailure("All batch APIs limit reached."),
-      );
-    }
+    if (results.isEmpty && texts.isNotEmpty) return Left(lastFailure ?? const ServerFailure("All translation attempts failed."));
     return Right(results);
   }
 
@@ -147,264 +111,94 @@ class TranslationRepositoryImpl implements TranslationRepository {
     try {
       final settings = await settingsDataSource.getSettings();
       final effectiveBookId = bookId ?? 'global';
-      final hash = HashUtils.hashText(text);
-      final langPair = 'auto_${settings.targetLanguage}'.toLowerCase();
+      final trimmedText = text.trim();
+      final hash = HashUtils.hashText(trimmedText);
+      final targetLangCode = _getLangCode(targetLanguage);
+      final langPair = 'auto_$targetLangCode'.toLowerCase();
 
-      // 1. Check cache
-      final cached = await cacheDataSource.getCachedTranslation(
-        effectiveBookId,
-        hash,
-        langPair,
-      );
-      if (cached != null) {
-        return Right(cached);
+      final cached = await cacheDataSource.getCachedTranslation(effectiveBookId, hash, langPair);
+      if (cached != null && cached.translation.isNotEmpty) return Right(cached);
+
+      if (useGoogleTranslate) return await _fallbackToGoogleTranslate(text, effectiveBookId, hash, langPair, targetLangCode);
+
+      // Usage Check (Free tier only)
+      if (settings.tier == AppTier.starter && (settings.customGeminiKey == null || settings.customGeminiKey!.isEmpty) && (settings.customGroqKey == null || settings.customGroqKey!.isEmpty)) {
+        if (!await usageDataSource.canTranslate()) return await _fallbackToGoogleTranslate(text, effectiveBookId, hash, langPair, targetLangCode);
       }
 
-      // If user explicitly requested simple Google Translate (free fallback)
-      if (useGoogleTranslate) {
-        return await _fallbackToGoogleTranslate(
-          text,
-          effectiveBookId,
-          hash,
-          langPair,
-          settings.targetLanguage,
-        );
-      }
-
-      // 2. Check daily limit (Only if NOT Pro)
-      if (settings.customGeminiKey == null ||
-          settings.customGeminiKey!.isEmpty) {
-        if (!await usageDataSource.canTranslate()) {
-          return await _fallbackToGoogleTranslate(
-            text,
-            effectiveBookId,
-            hash,
-            langPair,
-            settings.targetLanguage,
-          );
-        }
-      }
-
-      if (useGoogleTranslate) {
-        final res = await _translateWithGoogle(text, settings.targetLanguage);
-        final translation = Translation(
-          original: text,
-          translation: res,
-          provider: 'google',
-        );
-        await cacheDataSource.cacheTranslation(
-          effectiveBookId,
-          hash,
-          langPair,
-          translation,
-          'google',
-        );
-        return Right(translation);
-      }
-
+      // Elite Tier Logic
       if (settings.tier == AppTier.elite) {
         try {
-          if (settings.preferredEliteModel.startsWith('gpt') &&
-              settings.customOpenAIKey != null) {
-            final res = await openAiDataSource.translate(
-              text,
-              settings.targetLanguage,
-              settings,
-            );
-            final translation = Translation(
-              original: text,
-              translation: res,
-              provider: 'gpt',
-            );
-            await cacheDataSource.cacheTranslation(
-              effectiveBookId,
-              hash,
-              langPair,
-              translation,
-              'gpt',
-            );
-            return Right(translation);
-          } else if (settings.preferredEliteModel.startsWith('claude') &&
-              settings.customClaudeKey != null) {
-            final res = await claudeDataSource.translate(
-              text,
-              settings.targetLanguage,
-              settings,
-            );
-            final translation = Translation(
-              original: text,
-              translation: res,
-              provider: 'claude',
-            );
-            await cacheDataSource.cacheTranslation(
-              effectiveBookId,
-              hash,
-              langPair,
-              translation,
-              'claude',
-            );
-            return Right(translation);
+          if (settings.preferredEliteModel.startsWith('gpt') && settings.customOpenAIKey != null) {
+            final res = await openAiDataSource.translate(text, targetLangCode, settings);
+            final t = Translation(original: text, translation: res, provider: 'gpt');
+            await cacheDataSource.cacheTranslation(effectiveBookId, hash, langPair, t, 'gpt');
+            return Right(t);
+          } else if (settings.preferredEliteModel.startsWith('claude') && settings.customClaudeKey != null) {
+            final res = await claudeDataSource.translate(text, targetLangCode, settings);
+            final t = Translation(original: text, translation: res, provider: 'claude');
+            await cacheDataSource.cacheTranslation(effectiveBookId, hash, langPair, t, 'claude');
+            return Right(t);
           }
-        } catch (e) {
-          // fallback to gemini
-        }
+        } catch (e) { /* fallback */ }
       }
 
-      // 3. Fallback or Standard translation (Priority 1)
+      // Pro Tier Logic (Gemini or Groq)
+      final preferred = settings.preferredProService;
       try {
-        final translation = await _translateWithKey(
-          text,
-          settings.targetLanguage,
-          settings.customGeminiKey,
-        );
-        await cacheDataSource.cacheTranslation(
-          effectiveBookId,
-          hash,
-          langPair,
-          translation,
-          'gemini',
-        );
-
-        if (settings.customGeminiKey == null ||
-            settings.customGeminiKey!.isEmpty) {
-          await usageDataSource.incrementUsage();
-        }
-
-        return Right(translation);
-      } catch (e) {
-        final errorString = e.toString().toLowerCase();
-        final isQuotaError =
-            errorString.contains('quota') || errorString.contains('429');
-
-        if (isQuotaError &&
-            (settings.customGeminiKey == null ||
-                settings.customGeminiKey!.isEmpty)) {
-          return await _fallbackToGoogleTranslate(
-            text,
-            effectiveBookId,
-            hash,
-            langPair,
-            settings.targetLanguage,
-          );
-        }
-
-        // 4. Fallback to Groq (Priority 2)
-        try {
-          final translation = await groqDataSource.translate(
-            text,
-            settings.targetLanguage,
-          );
-          await cacheDataSource.cacheTranslation(
-            effectiveBookId,
-            hash,
-            langPair,
-            translation,
-            'groq',
-          );
-
-          if (settings.customGeminiKey == null ||
-              settings.customGeminiKey!.isEmpty) {
+        if (preferred == 'Groq') {
+          final t = await groqDataSource.translate(text, targetLangCode);
+          await cacheDataSource.cacheTranslation(effectiveBookId, hash, langPair, t, 'groq');
+          return Right(t);
+        } else {
+          final t = await geminiDataSource.translate(text, targetLangCode);
+          await cacheDataSource.cacheTranslation(effectiveBookId, hash, langPair, t, 'gemini');
+          
+          if (settings.tier == AppTier.starter && (settings.customGeminiKey == null || settings.customGeminiKey!.isEmpty)) {
             await usageDataSource.incrementUsage();
           }
-
-          return Right(translation);
+          return Right(t);
+        }
+      } catch (e) {
+        // Fallback to the other service if one fails
+        try {
+          if (preferred == 'Gemini') {
+            final t = await groqDataSource.translate(text, targetLangCode);
+            return Right(t);
+          } else {
+             final t = await geminiDataSource.translate(text, targetLangCode);
+             return Right(t);
+          }
         } catch (e2) {
-          return await _fallbackToGoogleTranslate(
-            text,
-            effectiveBookId,
-            hash,
-            langPair,
-            settings.targetLanguage,
-          );
+          return await _fallbackToGoogleTranslate(text, effectiveBookId, hash, langPair, targetLangCode);
         }
       }
     } catch (e) {
-      return const Left(
-        ServerFailure('Translation failed. Please try again later.'),
-      );
+      return const Left(ServerFailure('Translation service error.'));
     }
   }
 
-  Future<Translation> _translateWithKey(
-    String text,
-    String targetLanguage,
-    String? customKey,
-  ) async {
-    final model = GenerativeModel(
-      model: AppConstants.geminiModel,
-      apiKey: customKey ?? AppConstants.defaultGeminiKey,
-    );
-
-    final systemPrompt =
-        """
-You are a professional literary translator. Translate the following paragraph into $targetLanguage.
-Maintain the soul and emotional tone of the text, use natural linguistic flow, and strictly avoid literal translation.
-Return ONLY the translated text. Do not use JSON, do not add introductory text, do not add quotes around the output unless they are part of the translation.
-""";
-
-    final content = [
-      Content.text("$systemPrompt\n\nParagraph to translate:\n$text"),
-    ];
-    final response = await model.generateContent(content);
-
-    final responseText = response.text?.trim();
-    if (responseText == null || responseText.isEmpty) {
-      throw Exception('Empty response from Gemini');
-    }
-
-    return Translation(original: text, translation: responseText);
-  }
-
-  Future<Either<Failure, Translation>> _fallbackToGoogleTranslate(
-    String text,
-    String effectiveBookId,
-    String hash,
-    String langPair,
-    String targetLanguage,
-  ) async {
+  Future<Either<Failure, Translation>> _fallbackToGoogleTranslate(String text, String effectiveBookId, String hash, String langPair, String targetLangCode) async {
     int retries = 3;
     while (retries > 0) {
       try {
         final translator = gtrans.GoogleTranslator();
-        String destCode = _getLangCode(targetLanguage);
-        final t = await translator.translate(text, to: destCode);
+        final t = await translator.translate(text, to: targetLangCode);
         final trans = Translation(original: text, translation: t.text);
-        await cacheDataSource.cacheTranslation(
-          effectiveBookId,
-          hash,
-          langPair,
-          trans,
-          'google',
-        );
+        await cacheDataSource.cacheTranslation(effectiveBookId, hash, langPair, trans, 'google');
         return Right(trans);
       } catch (e) {
         retries--;
-        if (retries == 0) {
-          return const Left(
-            ServerFailure(
-              'All services and Free Google Translate failed. Please check your connection.',
-            ),
-          );
-        }
+        if (retries == 0) return const Left(ServerFailure('Free services failed. Check internet.'));
         await Future.delayed(const Duration(milliseconds: 2000));
       }
     }
-    return const Left(
-      ServerFailure(
-        'All services and Free Google Translate failed. Please check your connection.',
-      ),
-    );
-  }
-
-  Future<String> _translateWithGoogle(String text, String targetLanguage) async {
-    final translator = gtrans.GoogleTranslator();
-    String destCode = _getLangCode(targetLanguage);
-    final t = await translator.translate(text, to: destCode);
-    return t.text;
+    return const Left(ServerFailure('Connection error.'));
   }
 
   String _getLangCode(String targetLang) {
     final lower = targetLang.toLowerCase();
+    if (lower.length == 2) return lower;
     if (lower.contains('arabic')) return 'ar';
     if (lower.contains('spanish')) return 'es';
     if (lower.contains('french')) return 'fr';

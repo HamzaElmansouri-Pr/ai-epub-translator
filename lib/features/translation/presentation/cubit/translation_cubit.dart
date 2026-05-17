@@ -3,7 +3,7 @@ import 'package:injectable/injectable.dart';
 import 'package:epub_translate_meaning/features/translation/domain/repositories/translation_repository.dart';
 import 'package:epub_translate_meaning/features/translation/presentation/cubit/translation_state.dart';
 
-@lazySingleton
+@injectable
 class TranslationCubit extends Cubit<TranslationState> {
   final TranslationRepository repository;
 
@@ -20,6 +20,7 @@ class TranslationCubit extends Cubit<TranslationState> {
     String? bookId,
     bool useGoogleTranslate = false,
   }) async {
+    if (isClosed) return;
     emit(TranslationLoading(text));
     final result = await repository.translate(
       text,
@@ -27,6 +28,7 @@ class TranslationCubit extends Cubit<TranslationState> {
       bookId: bookId,
       useGoogleTranslate: useGoogleTranslate,
     );
+    if (isClosed) return;
     result.fold((failure) {
       if (failure.message.contains('exhausted') ||
           failure.message == 'API_QUOTA_EXCEEDED') {

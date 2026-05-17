@@ -1,4 +1,4 @@
-﻿import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:injectable/injectable.dart';
 import 'package:epub_translate_meaning/features/reader/domain/repositories/reader_repository.dart';
 import 'package:epub_translate_meaning/features/reader/presentation/cubit/reader_state.dart';
@@ -46,13 +46,33 @@ class ReaderCubit extends Cubit<ReaderState> {
     }
   }
 
-  Future<void> addBookmark(Bookmark bookmark) async {
+  Future<void> toggleBookmark(Bookmark bookmark) async {
     final currentState = state;
     if (currentState is ReaderLoaded) {
-      await repository.saveBookmark(bookmark);
+      // Find if ALREADY bookmarked this specific spot
+      final existingAtSpot = currentState.bookmarks.where((b) => 
+        b.chapterIndex == bookmark.chapterIndex && b.paragraphIndex == bookmark.paragraphIndex).firstOrNull;
+
+      if (existingAtSpot != null) {
+        // Unpin
+        await repository.removeBookmark(existingAtSpot.id!);
+      } else {
+        // Enforce ONE PIN PER BOOK: Remove all other bookmarks for this bookId
+        for (var b in currentState.bookmarks) {
+          if (b.id != null) await repository.removeBookmark(b.id!);
+        }
+        // Save the new one
+        await repository.saveBookmark(bookmark);
+      }
+      
       final updatedBookmarks = await repository.getBookmarks(bookmark.bookId);
-      emit(currentState.copyWith(bookmarks: updatedBookmarks.getOrElse(() => currentState.bookmarks)));
+      emit(currentState.copyWith(bookmarks: updatedBookmarks.getOrElse(() => [])));
     }
+  }
+
+  Future<void> addBookmark(Bookmark bookmark) async {
+    // Legacy support, but we'll use toggleBookmark
+    await toggleBookmark(bookmark);
   }
 
   Future<void> removeBookmark(int id, String bookId) async {
