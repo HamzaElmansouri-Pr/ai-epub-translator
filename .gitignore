@@ -11,6 +11,9 @@
 .svn/
 .swiftpm/
 migrate_working_dir/
+Thumbs.db
+ehthumbs.db
+Desktop.ini
 
 # IntelliJ related
 *.iml
@@ -18,20 +21,28 @@ migrate_working_dir/
 *.iws
 .idea/
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
+# VS Code
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
 
 # Flutter/Dart/Pub related
 **/doc/api/
 **/ios/Flutter/.last_build_id
 .dart_tool/
+.flutter-plugins
 .flutter-plugins-dependencies
 .pub-cache/
 .pub/
 /build/
 /coverage/
+
+# Generated files
+*.g.dart
+*.freezed.dart
+*.config.dart
 
 # Symbolication related
 app.*.symbols
@@ -46,4 +57,14 @@ app.*.map.json
 
 # Environment variables
 .env
+.env*
 *.env
+
+# SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Test coverage
+coverage/
+html/
