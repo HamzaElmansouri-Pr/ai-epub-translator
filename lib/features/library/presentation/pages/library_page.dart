@@ -28,6 +28,10 @@ class _LibraryPageState extends State<LibraryPage> {
   String _selectedTab = 'All';
   bool _showOnlyGenerated = false;
 
+  String _searchQuery = '';
+  bool _isSelectionMode = false;
+  final Set<String> _selectedBookIds = {};
+
   String _sortOption = 'newest';
   bool _exportIsBilingual = true;
   bool _skipTranslation = true;
@@ -208,23 +212,78 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   Widget _buildBookItem(BuildContext context, Book book) {
+    final isSelected = _selectedBookIds.contains(book.id);
+
     return AspectRatio(
       aspectRatio: 0.65,
-      child: BookCard(
-        book: book,
-        onDelete: () => context.read<LibraryCubit>().deleteBook(book.id),
-        onExport: () => _showExportDialog(context, book),
-        onStatusChanged: (status) =>
-            context.read<LibraryCubit>().changeBookStatus(book, status),
-        onToggleFavorite: () =>
-            context.read<LibraryCubit>().toggleFavorite(book),
-        onTogglePin: () => context.read<LibraryCubit>().togglePin(book),
-        onSearchCover: () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => CoverSearchPage(book: book),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            transform: Matrix4.identity()..scale(isSelected ? 0.95 : 1.0),
+            transformAlignment: Alignment.center,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: isSelected
+                  ? Border.all(color: AppColors.primary, width: 3)
+                  : null,
+            ),
+            child: BookCard(
+              book: book,
+              onDelete: () => context.read<LibraryCubit>().deleteBook(book.id),
+              onExport: () => _showExportDialog(context, book),
+              onStatusChanged: (status) =>
+                  context.read<LibraryCubit>().changeBookStatus(book, status),
+              onToggleFavorite: () =>
+                  context.read<LibraryCubit>().toggleFavorite(book),
+              onTogglePin: () => context.read<LibraryCubit>().togglePin(book),
+              onSearchCover: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => CoverSearchPage(book: book),
+                ),
+              ),
+              onTapOverride: _isSelectionMode
+                  ? () {
+                      setState(() {
+                        if (isSelected) {
+                          _selectedBookIds.remove(book.id);
+                          if (_selectedBookIds.isEmpty) {
+                            _isSelectionMode = false;
+                          }
+                        } else {
+                          _selectedBookIds.add(book.id);
+                        }
+                      });
+                    }
+                  : null,
+              onLongPressOverride: () {
+                setState(() {
+                  _isSelectionMode = true;
+                  _selectedBookIds.add(book.id);
+                });
+              },
+            ),
           ),
-        ),
+          if (isSelected)
+            Positioned(
+              top: 12,
+              right: 12,
+              child: Container(
+                padding: const EdgeInsets.all(4),
+                decoration: const BoxDecoration(
+                  color: AppColors.primary,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.check,
+                  size: 16,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -339,6 +398,31 @@ class _LibraryPageState extends State<LibraryPage> {
                           ),
                         ),
                       ],
+                    ),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                    child: TextField(
+                      style: const TextStyle(color: Colors.white),
+                      decoration: InputDecoration(
+                        hintText: 'Search books or authors...',
+                        hintStyle: const TextStyle(color: Colors.white54),
+                        prefixIcon: const Icon(Icons.search, color: Colors.white54),
+                        filled: true,
+                        fillColor: Colors.white.withValues(alpha: 0.1),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          borderSide: BorderSide.none,
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                      ),
+                      onChanged: (value) {
+                        setState(() {
+                          _searchQuery = value.toLowerCase();
+                        });
+                      },
                     ),
                   ),
                 ),
@@ -471,6 +555,14 @@ class _LibraryPageState extends State<LibraryPage> {
 
                       List<Book> filteredBooks = state.books;
                       
+                      if (_searchQuery.isNotEmpty) {
+                        filteredBooks = filteredBooks.where((b) {
+                          final titleMatch = b.title.toLowerCase().contains(_searchQuery);
+                          final authorMatch = (b.author ?? '').toLowerCase().contains(_searchQuery);
+                          return titleMatch || authorMatch;
+                        }).toList();
+                      }
+                      
                       if (_showOnlyGenerated) {
                         filteredBooks = filteredBooks.where((b) => b.filePath.contains('/converted/')).toList();
                       }
@@ -595,8 +687,146 @@ class _LibraryPageState extends State<LibraryPage> {
               ],
             ),
           ),
+          
+          // Selection Action Bar
+          if (_isSelectionMode)
+            Positioned(
+              bottom: 32,
+              left: 24,
+              right: 24,
+              child: Material(
+                color: Colors.transparent,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1E293B),
+                    borderRadius: BorderRadius.circular(32),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.5),
+                        blurRadius: 20,
+                        offset: const Offset(0, 10),
+                      ),
+                    ],
+                    border: Border.all(color: Colors.white10),
+                  ),
+                  child: Row(
+                    children: [
+                      Text(
+                        '${_selectedBookIds.length} Selected',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const Spacer(),
+                      TextButton(
+                        onPressed: () {
+                          setState(() {
+                            final state = context.read<LibraryCubit>().state;
+                            if (state is LibraryLoaded) {
+                              if (_selectedBookIds.length == state.books.length) {
+                                _selectedBookIds.clear();
+                                _isSelectionMode = false;
+                              } else {
+                                _selectedBookIds.addAll(state.books.map((b) => b.id));
+                              }
+                            }
+                          });
+                        },
+                        child: const Text(
+                          'Select All',
+                          style: TextStyle(color: AppColors.primary),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.push_pin, color: AppColors.primary),
+                        tooltip: 'Pin Selected',
+                        onPressed: _selectedBookIds.isEmpty ? null : () {
+                          final state = context.read<LibraryCubit>().state;
+                          if (state is LibraryLoaded) {
+                            final books = state.books.where((b) => _selectedBookIds.contains(b.id)).toList();
+                            context.read<LibraryCubit>().pinBooks(books);
+                            setState(() {
+                              _isSelectionMode = false;
+                              _selectedBookIds.clear();
+                            });
+                          }
+                        },
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.push_pin_outlined, color: Colors.white70),
+                        tooltip: 'Unpin Selected',
+                        onPressed: _selectedBookIds.isEmpty ? null : () {
+                          final state = context.read<LibraryCubit>().state;
+                          if (state is LibraryLoaded) {
+                            final books = state.books.where((b) => _selectedBookIds.contains(b.id)).toList();
+                            context.read<LibraryCubit>().unpinBooks(books);
+                            setState(() {
+                              _isSelectionMode = false;
+                              _selectedBookIds.clear();
+                            });
+                          }
+                        },
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                        tooltip: 'Delete Selected',
+                        onPressed: _selectedBookIds.isEmpty ? null : () {
+                          _showBulkDeleteConfirmation(context);
+                        },
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.white54),
+                        onPressed: () {
+                          setState(() {
+                            _isSelectionMode = false;
+                            _selectedBookIds.clear();
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
+    );
+  }
+
+  void _showBulkDeleteConfirmation(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          title: const Text('Delete Books', style: TextStyle(color: Colors.white)),
+          content: Text(
+            'Are you sure you want to delete ${_selectedBookIds.length} selected books from your library? The files will not be deleted from your device.',
+            style: const TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                context.read<LibraryCubit>().deleteBooks(_selectedBookIds.toList());
+                setState(() {
+                  _isSelectionMode = false;
+                  _selectedBookIds.clear();
+                });
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+              child: const Text('Delete', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
     );
   }
 }

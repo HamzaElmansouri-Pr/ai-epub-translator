@@ -192,4 +192,68 @@ class LibraryCubit extends Cubit<LibraryState> {
       (_) => loadBooks(),
     );
   }
+
+  Future<void> deleteBooks(List<String> ids) async {
+    if (ids.isEmpty) return;
+    emit(LibraryLoading());
+    bool hasError = false;
+    String lastError = '';
+    
+    for (final id in ids) {
+      final result = await removeBookFromDb(id);
+      result.fold(
+        (failure) {
+          hasError = true;
+          lastError = failure.message;
+        },
+        (_) => null,
+      );
+    }
+    
+    if (hasError) {
+      emit(LibraryError(lastError));
+    } else {
+      await loadBooks();
+    }
+  }
+
+  Future<void> pinBooks(List<Book> books) async {
+    if (books.isEmpty) return;
+    
+    final state = this.state;
+    if (state is LibraryLoaded) {
+      final currentPinned = state.books.where((b) => b.isPinned).length;
+      final booksToPin = books.where((b) => !b.isPinned).toList();
+      
+      if (currentPinned + booksToPin.length > 3) {
+        // Can't pin all of them due to limit
+        // Maybe we just pin what we can, or just abort. Let's abort for simplicity and consistency.
+        emit(const LibraryError('You can only pin up to 3 books.'));
+        await Future.delayed(const Duration(milliseconds: 50));
+        await loadBooks();
+        return;
+      }
+      
+      emit(LibraryLoading());
+      for (final book in booksToPin) {
+        final updatedBook = book.copyWith(isPinned: true);
+        await updateBook(updatedBook);
+      }
+      await loadBooks();
+    }
+  }
+
+  Future<void> unpinBooks(List<Book> books) async {
+    if (books.isEmpty) return;
+    
+    final booksToUnpin = books.where((b) => b.isPinned).toList();
+    if (booksToUnpin.isEmpty) return;
+    
+    emit(LibraryLoading());
+    for (final book in booksToUnpin) {
+      final updatedBook = book.copyWith(isPinned: false);
+      await updateBook(updatedBook);
+    }
+    await loadBooks();
+  }
 }

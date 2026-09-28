@@ -14,6 +14,8 @@ class BookCard extends StatelessWidget {
   final VoidCallback? onToggleFavorite;
   final VoidCallback? onTogglePin;
   final VoidCallback? onSearchCover;
+  final VoidCallback? onTapOverride;
+  final VoidCallback? onLongPressOverride;
 
   const BookCard({
     super.key,
@@ -24,19 +26,21 @@ class BookCard extends StatelessWidget {
     this.onToggleFavorite,
     this.onTogglePin,
     this.onSearchCover,
+    this.onTapOverride,
+    this.onLongPressOverride,
   });
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () {
+      onTap: onTapOverride ?? () {
         if (book.filePath.toLowerCase().endsWith('.pdf')) {
           context.push('/pdf-reader', extra: book);
         } else {
           context.push('/reader', extra: book);
         }
       },
-      onLongPress: onTogglePin,
+      onLongPress: onLongPressOverride ?? onTogglePin,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

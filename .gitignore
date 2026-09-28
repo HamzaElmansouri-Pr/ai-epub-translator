@@ -68,3 +68,16 @@ app.*.map.json
 # Test coverage
 coverage/
 html/
+
+# Scratch and Unused files
+*.ps1
+test_*.dart
+test_*.py
+analyze*.txt
+*.pdf
+*.epub
+/scratch/
+/books epub/
+epub_translate.db
+epub_translate_meaning.iml
+implementation_plan.md

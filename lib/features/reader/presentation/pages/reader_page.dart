@@ -23,6 +23,7 @@ import 'package:epub_translate_meaning/core/di/injection.dart';
 import 'package:epub_translate_meaning/core/services/tts_service.dart';
 import 'package:epub_translate_meaning/core/services/audio_handler.dart';
 import 'package:epub_view/epub_view.dart';
+import 'package:epub_translate_meaning/core/utils/app_logger.dart';
 import 'package:epub_translate_meaning/features/reader/presentation/cubit/reader_cubit.dart';
 import 'package:epub_translate_meaning/features/reader/presentation/cubit/reader_state.dart';
 import 'package:epub_translate_meaning/features/reader/domain/entities/bookmark.dart';
@@ -56,6 +57,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   late final SettingsCubit _settingsCubit;
   Timer? _debounceTimer;
   bool _isSaving = false;
+  bool _isRestoringPosition = true;
+  bool _isDocumentLoaded = false;
+  String? _savedCfi;
+  int? _savedChapterIndex;
 
   @override
   void initState() {
@@ -69,9 +74,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    // Flush any pending debounced save immediately instead of cancelling
     _debounceTimer?.cancel();
     if (_epubController != null) {
-      _saveProgressDirect();
+      // Capture all progress data BEFORE nulling the controller
+      _saveProgressSync();
       final controller = _epubController;
       _epubController = null;
       Future.delayed(const Duration(milliseconds: 200), () {
@@ -90,17 +97,86 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   // --- SAVE ---
   void _saveCurrentProgress() {
+    if (_isRestoringPosition) return;
     _debounceTimer?.cancel();
     _debounceTimer = Timer(const Duration(seconds: 2), () => _saveProgressDirect());
   }
 
+  /// Capture progress data synchronously from the controller and fire off a DB save.
+  /// Used in dispose() where we must read controller state before it's nulled.
+  void _saveProgressSync() {
+    if (_isRestoringPosition) {
+      AppLogger.log('_saveProgressSync aborted: currently restoring position');
+      return;
+    }
+    AppLogger.log('_saveProgressSync called');
+    if (_epubController == null) {
+      AppLogger.log('_saveProgressSync aborted: _epubController is null');
+      return;
+    }
+    final current = _epubController!.currentValue;
+    if (current == null) {
+      AppLogger.log('_saveProgressSync aborted: currentValue is null');
+      return;
+    }
+
+    String? cfi;
+    try {
+      cfi = _epubController!.generateEpubCfi();
+    } catch (e) {
+      AppLogger.log('generateEpubCfi() failed during save: $e');
+    }
+
+    final progressPercent = _totalChapters > 1
+        ? (current.chapterNumber / (_totalChapters - 1)).clamp(0.0, 1.0)
+        : 0.0;
+
+    final model = ReadingProgressModel(
+      bookId: widget.book.id,
+      chapterIndex: current.chapterNumber,
+      paragraphIndex: current.paragraphNumber,
+      scrollPosition: current.position.itemLeadingEdge,
+      progressPercent: progressPercent,
+      format: 'epub',
+      epubCfi: cfi,
+      updatedAt: DateTime.now(),
+    );
+
+    // Fire-and-forget — the data is already captured synchronously above
+    _isSaving = true;
+    getIt<LocalBookDataSource>().saveReadingProgress(model).then((_) {
+      AppLogger.log('Progress saved: ch=${model.chapterIndex} p=${model.paragraphIndex} cfi=${cfi != null ? "yes" : "null"}');
+      _isSaving = false;
+    }).catchError((e) {
+      AppLogger.log('ERROR saving progress: $e');
+      _isSaving = false;
+    });
+  }
+
   /// Save progress directly to DB using the ePub CFI string for exact position.
   void _saveProgressDirect() {
-    if (_epubController == null) return;
+    if (_isRestoringPosition) {
+      AppLogger.log('_saveProgressDirect aborted: currently restoring position');
+      return;
+    }
+    AppLogger.log('_saveProgressDirect called');
+    if (_epubController == null) {
+      AppLogger.log('_saveProgressDirect aborted: _epubController is null');
+      return;
+    }
     final current = _epubController!.currentValue;
-    if (current == null) return;
+    if (current == null) {
+      AppLogger.log('_saveProgressDirect aborted: currentValue is null');
+      return;
+    }
 
-    final cfi = _epubController!.generateEpubCfi();
+    String? cfi;
+    try {
+      cfi = _epubController!.generateEpubCfi();
+    } catch (e) {
+      AppLogger.log('generateEpubCfi() failed: $e');
+    }
+
     final progressPercent = _totalChapters > 1
         ? (current.chapterNumber / (_totalChapters - 1)).clamp(0.0, 1.0)
         : 0.0;
@@ -118,8 +194,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
     _isSaving = true;
     getIt<LocalBookDataSource>().saveReadingProgress(model).then((_) {
+      AppLogger.log('Progress saved direct: ch=${model.chapterIndex} p=${model.paragraphIndex} cfi=${cfi != null ? "yes" : "null"}');
       _isSaving = false;
-    }).catchError((_) {
+    }).catchError((e) {
+      AppLogger.log('ERROR saving progress direct: $e');
       _isSaving = false;
     });
   }
@@ -191,20 +269,39 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       return;
     }
 
-    _totalChapters = epubBook.Chapters?.length ?? 1;
+    // Count total flattened chapters (including sub-chapters) for accurate progress
+    int flattenedCount = 0;
+    for (var ch in (epubBook.Chapters ?? [])) {
+      flattenedCount++;
+      flattenedCount += (ch.SubChapters?.length ?? 0) as int;
+    }
+    _totalChapters = flattenedCount > 0 ? flattenedCount : 1;
 
-    // Load saved CFI for exact position restoration
+    _totalChapters = flattenedCount > 0 ? flattenedCount : 1;
+
+    // Load saved progress for position restoration
     final savedProgress = await localDataSource.getReadingProgress(widget.book.id);
-    final savedCfi = savedProgress?.epubCfi;
+    _savedCfi = savedProgress?.epubCfi;
+    _savedChapterIndex = savedProgress?.chapterIndex;
+
+    AppLogger.log('Restoring progress: cfi=${_savedCfi != null ? "yes" : "null"}, ch=$_savedChapterIndex, totalChapters=$_totalChapters');
 
     if (mounted) {
       setState(() {
         // Pass the saved CFI to the controller — epub_view handles the rest
+        // If CFI is null but we have a chapter index, we'll jump after document loads
         _epubController = EpubController(
           document: Future.value(epubBook),
-          epubCfi: savedCfi,
+          epubCfi: _savedCfi,
         );
+        
+        // Listen to actual controller value changes rather than relying on scroll notifications
+        _epubController!.currentValueListenable.addListener(() {
+           _saveCurrentProgress();
+        });
       });
+
+      // Fallback: we will handle jumps in onDocumentLoaded instead of here
     }
   }
 
@@ -241,6 +338,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           body: PopScope(
             canPop: !_isHudVisible,
             onPopInvokedWithResult: (didPop, result) {
+              debugPrint('PopScope invoked, didPop=$didPop');
               if (didPop) {
                 _saveProgressDirect();
                 return;
@@ -249,8 +347,15 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                 setState(() => _isHudVisible = false);
               }
             },
-            child: Stack(
-              children: [
+            child: Listener(
+              onPointerDown: (_) {
+                if (_isRestoringPosition && _isDocumentLoaded) {
+                  _isRestoringPosition = false;
+                  AppLogger.log('Restoration phase ended by user interaction');
+                }
+              },
+              child: Stack(
+                children: [
                 GestureDetector(
                   behavior: HitTestBehavior.translucent,
                   onHorizontalDragEnd: (details) {
@@ -275,7 +380,44 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                           child: EpubView(
                             controller: _epubController!,
                             onDocumentLoaded: (doc) {
-                              // Position restoration is fully handled by the epubCfi passed to EpubController
+                              AppLogger.log('onDocumentLoaded triggered');
+                              if (mounted) setState(() => _isDocumentLoaded = true);
+                              Future.delayed(const Duration(milliseconds: 400), () {
+                                if (!mounted || _epubController == null) return;
+                                if (_savedCfi != null && _savedCfi!.isNotEmpty) {
+                                  AppLogger.log('Forcing gotoEpubCfi in onDocumentLoaded');
+                                  try {
+                                    _epubController!.gotoEpubCfi(_savedCfi!);
+                                    
+                                    // Verify if jump succeeded after a short delay
+                                    Future.delayed(const Duration(milliseconds: 600), () {
+                                      if (!mounted || _epubController == null) return;
+                                      final currentCh = _epubController!.currentValue?.chapterNumber;
+                                      
+                                      // If we expected a chapter > 1, but we are still at chapter 1 or 0, the CFI silently failed
+                                      if (_savedChapterIndex != null && _savedChapterIndex! > 1 && (currentCh == null || currentCh <= 1)) {
+                                        AppLogger.log('gotoEpubCfi silently failed (expected $_savedChapterIndex, got $currentCh). Falling back to jumpTo');
+                                        try {
+                                          _epubController!.jumpTo(index: _savedChapterIndex!);
+                                        } catch (_) {}
+                                      }
+                                    });
+                                  } catch (e) {
+                                    AppLogger.log('gotoEpubCfi failed: $e');
+                                    if (_savedChapterIndex != null && _savedChapterIndex! > 0) {
+                                      _epubController!.jumpTo(index: _savedChapterIndex!);
+                                      AppLogger.log('Fell back to chapter index jump');
+                                    }
+                                  }
+                                } else if (_savedChapterIndex != null && _savedChapterIndex! > 0) {
+                                  try {
+                                    _epubController!.jumpTo(index: _savedChapterIndex!);
+                                    AppLogger.log('Jumped directly to chapter index');
+                                  } catch (e) {
+                                    AppLogger.log('jumpTo chapter index failed: $e');
+                                  }
+                                }
+                              });
                             },
                             builders: EpubViewBuilders<DefaultBuilderOptions>(
                               options: const DefaultBuilderOptions(),
@@ -309,7 +451,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                                       isPinned = readerState.bookmarks.any((b) => b.chapterIndex == chapterIndex && b.paragraphIndex == paragraphIndex);
                                     }
 
-                                    final pKey = _paragraphKeys.putIfAbsent('c${chapterIndex}p$index', () => GlobalKey());
+                                    final pKey = _paragraphKeys.putIfAbsent('c${chapterIndex}p$paragraphIndex', () => GlobalKey());
                                     return Stack(
                                       key: pKey,
                                       children: [
@@ -463,7 +605,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               ],
             ),
           ),
-        );
+        ),
+      );
       },
     );
   }

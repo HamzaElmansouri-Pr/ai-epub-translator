@@ -13,6 +13,8 @@ class ReaderCubit extends Cubit<ReaderState> {
   ReaderCubit(this.repository) : super(ReaderInitial());
 
   Future<void> loadBook(String filePath, String bookId) async {
+    // Reset to initial state first to clear any stale data from previous book
+    emit(ReaderInitial());
     emit(ReaderLoading());
     final result = await repository.getChapters(filePath);
     result.fold(

@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:epub_translate_meaning/core/utils/app_logger.dart';
 import 'package:injectable/injectable.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -128,7 +129,7 @@ class LocalBookDataSourceImpl implements LocalBookDataSource {
       final db = await dbHelper.database;
       final maps = await db.query('bookmarks', where: 'book_id = ?', whereArgs: [bookId], orderBy: 'created_at DESC');
       return maps.map((m) => BookmarkModel.fromMap(m)).toList();
-    } catch (_) { return []; }
+    } catch (e) { AppLogger.log('LocalBookDataSource.getBookmarks ERROR: $e'); return []; }
   }
 
   @override
@@ -137,7 +138,7 @@ class LocalBookDataSourceImpl implements LocalBookDataSource {
     try {
       final db = await dbHelper.database;
       await db.insert('bookmarks', bookmark.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
-    } catch (_) {}
+    } catch (e) { AppLogger.log('LocalBookDataSource.saveBookmark ERROR: $e'); }
   }
 
   @override
@@ -146,7 +147,7 @@ class LocalBookDataSourceImpl implements LocalBookDataSource {
     try {
       final db = await dbHelper.database;
       await db.delete('bookmarks', where: 'id = ?', whereArgs: [id]);
-    } catch (_) {}
+    } catch (e) { AppLogger.log('LocalBookDataSource.removeBookmark ERROR: $e'); }
   }
 
   @override
@@ -156,7 +157,7 @@ class LocalBookDataSourceImpl implements LocalBookDataSource {
       final db = await dbHelper.database;
       final maps = await db.query('notes', where: 'book_id = ?', whereArgs: [bookId], orderBy: 'created_at DESC');
       return maps.map((m) => NoteModel.fromMap(m)).toList();
-    } catch (_) { return []; }
+    } catch (e) { AppLogger.log('LocalBookDataSource.getNotes ERROR: $e'); return []; }
   }
 
   @override
@@ -165,7 +166,7 @@ class LocalBookDataSourceImpl implements LocalBookDataSource {
     try {
       final db = await dbHelper.database;
       await db.insert('notes', note.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
-    } catch (_) {}
+    } catch (e) { AppLogger.log('LocalBookDataSource.saveNote ERROR: $e'); }
   }
 
   @override
@@ -174,7 +175,7 @@ class LocalBookDataSourceImpl implements LocalBookDataSource {
     try {
       final db = await dbHelper.database;
       await db.delete('notes', where: 'id = ?', whereArgs: [id]);
-    } catch (_) {}
+    } catch (e) { AppLogger.log('LocalBookDataSource.removeNote ERROR: $e'); }
   }
 
   @override
@@ -184,7 +185,7 @@ class LocalBookDataSourceImpl implements LocalBookDataSource {
       final db = await dbHelper.database;
       final maps = await db.query('reading_progress', where: 'book_id = ?', whereArgs: [bookId], limit: 1);
       if (maps.isNotEmpty) return ReadingProgressModel.fromMap(maps.first);
-    } catch (_) {}
+    } catch (e) { AppLogger.log('LocalBookDataSource.getReadingProgress ERROR: $e'); }
     return null;
   }
 
@@ -210,6 +211,6 @@ class LocalBookDataSourceImpl implements LocalBookDataSource {
         where: 'id = ?',
         whereArgs: [progress.bookId],
       );
-    } catch (_) {}
+    } catch (e) { AppLogger.log('LocalBookDataSource.saveReadingProgress ERROR: $e'); }
   }
 }
